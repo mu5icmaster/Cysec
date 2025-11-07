@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}My Orders – SecureShop{% endblock %}
+{% block content %}
+<h2 class="h4">My Orders</h2>
+{% if orders %}
+  <div class="list-group">
+    {% for o in orders %}
+      <div class="list-group-item">
+        <div class="d-flex justify-content-between">
+          <div>#{{ o.id }} • {{ o.created_at }}</div>
+          <div class="badge bg-secondary">{{ o.status }}</div>
+        </div>
+        <ul class="mt-2">
+          {% for it in o.items.all %}
+            <li>{{ it.product.name }} × {{ it.qty }} — ${{ it.price_cents|floatformat:-2 }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+    {% endfor %}
+  </div>
+{% else %}
+  <div class="alert alert-info mt-3">No orders yet.</div>
+{% endif %}
+{% endblock %}

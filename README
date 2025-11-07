@@ -1,0 +1,52 @@
+# 🛡️ SecureShop – Secure E-Commerce Demo (CYSEC Assignment)
+
+**SecureShop** is a Django-based e-commerce web application built to demonstrate
+**secure coding practices**, **authentication hardening**, and **defensive web development**.
+
+Developed for the *CYSEC Assignment (INT6005CEM)*, this project implements an intentionally small
+e-commerce site with **strong security features** layered throughout.
+
+---
+
+## 🚀 Features
+
+### 🧩 Core Functionality
+- User registration & login
+- Email 2-step verification (6-digit code)
+- Product listing, creation, and editing (admin only)
+- Shopping cart with checkout
+- Order history per user
+- File upload for product images
+
+### 🔐 Security Enhancements
+| Security Feature | Description |
+|------------------|-------------|
+| **CSRF Protection** | All forms use Django’s built-in CSRF middleware |
+| **Session Management** | Sessions are rotated at login; cart stored server-side |
+| **Rate Limiting Middleware** | Prevents brute-force attacks on login/register |
+| **Honeypot Field** | Stops bots from auto-submitting the registration form |
+| **Content Security Policy (CSP)** | Mitigates XSS by restricting allowed sources |
+| **Referrer & Permissions Policies** | Limits browser data leakage |
+| **HTTPS / HSTS Ready** | Settings prepared for secure production deployment |
+| **Audit Logging** | Security-relevant events (login, logout, orders) logged to `audit.log` |
+| **Email One-Time Code (2FA)** | Adds step-up authentication after password login |
+| **Object-Level Access Control** | Users can only see their own orders |
+
+---
+
+## 🧱 Tech Stack
+
+- **Backend:** Django 5.x (Python 3.13)
+- **Frontend:** Bootstrap 5 via CDN
+- **Database:** SQLite (default, switchable to PostgreSQL/MySQL)
+- **Logging:** Python logging with file output
+- **Email Backend:** Console (development) — prints codes to terminal
+
+---
+
+## ⚙️ Installation & Setup
+
+### 1. Clone the Repository
+```bash
+git clone https://github.com/yourusername/SecureShop.git
+cd SecureShop

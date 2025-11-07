@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% load widget_tweaks %}
+{% block title %}Login – SecureShop{% endblock %}
+{% block content %}
+  <div class="row justify-content-center">
+    <div class="col-12 col-sm-8 col-md-6 col-lg-4">
+      <div class="card shadow-sm">
+        <div class="card-body">
+          <h2 class="h4 mb-3">Login</h2>
+          <form method="post" novalidate>
+            {% csrf_token %}
+            <div class="mb-3">
+              {{ form.username.label_tag }} 
+              {% render_field form.username class+="form-control" %}
+            </div>
+            <div class="mb-3">
+              {{ form.password.label_tag }} 
+              {% render_field form.password class+="form-control" %}
+            </div>
+            <button class="btn btn-primary w-100">Login</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+{% endblock %}

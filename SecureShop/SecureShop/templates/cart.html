@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Cart – SecureShop{% endblock %}
+{% block content %}
+  <h2 class="h4 mb-3">Your Cart</h2>
+  {% if items %}
+    <ul class="list-group mb-3 shadow-sm">
+      {% for line in items %}
+        <li class="list-group-item d-flex justify-content-between align-items-center">
+          <div>
+            <div class="fw-semibold">{{ line.product.name }}</div>
+            <div class="text-muted small">Qty: {{ line.qty }}</div>
+          </div>
+          <div class="fw-semibold">${{ line.sub|floatformat:-2 }}</div>
+        </li>
+      {% endfor %}
+    </ul>
+    <div class="d-flex justify-content-between align-items-center">
+      <div class="fs-5">Total: <span class="fw-bold">${{ total|floatformat:-2 }}</span></div>
+      <form method="post" action="{% url 'checkout' %}">
+        {% csrf_token %}
+        <button class="btn btn-success">Checkout</button>
+      </form>
+    </div>
+  {% else %}
+    <div class="alert alert-info">Your cart is empty.</div>
+  {% endif %}
+{% endblock %}
