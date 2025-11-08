@@ -1,0 +1,47 @@
+{
+    "New Product Added": {
+        "Title": "New Product Added",
+        "Message": "A new product: {} has been added.",
+        "Access": "Worker"
+    },
+    "Low Stock Alert": {
+        "Title": "Low Stock Alert",
+        "Message": "{} is low on stock (50%).",
+        "Access": "Worker"
+    },
+    "Out of Stock Alert": {
+        "Title": "Out of Stock Alert",
+        "Message": "{} is out of stock.",
+        "Access": "Worker"
+    },
+    "Stock at Critical Level": {
+        "Title": "Stock at Critical Level",
+        "Message": "{} stock is at 25%.",
+        "Access": "Worker"
+    },
+    "New Task Assigned": {
+        "Title": "New Task Assigned",
+        "Message": "You have a new task: {}.",
+        "Access": "Worker"
+    },
+    "New Vendor Created": {
+        "Title": "New Vendor Added",
+        "Message": "A new vendor has been added.",
+        "Access": "Supervisor"
+    },
+    "New Purchase Order Created": {
+        "Title": "New Purchase Order Added",
+        "Message": "A new purchase order has been added.",
+        "Access": "Supervisor"
+    },
+    "New Sales Order Created": {
+        "Title": "New Sales Order Added",
+        "Message": "A new sales order has been added.",
+        "Access": "Supervisor"
+    },
+    "Task Completed": {
+      "Title": "Task Completed",
+      "Message": "{} has finished the task.",
+      "Access": "Administrator"
+    }
+}

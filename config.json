@@ -1,0 +1,18 @@
+{
+    "program_files": {
+        "Graphics": "c:\\Users\\Jet\\Desktop\\Cysec/Graphics",
+        "Database": "c:\\Users\\Jet\\Desktop\\Cysec/Database/Database.db",
+        "Preview": "c:\\Users\\Jet\\Desktop\\Cysec/Frames/ui_preview_text.json",
+        "Log": "c:\\Users\\Jet\\Desktop\\Cysec/Database/Database.log",
+        "Reports": "c:\\Users\\Jet\\Desktop\\Cysec/Reports"
+    },
+    "user_preferences": {
+        "user_id": {
+            "1": {
+                "profile_picture": "user_1a",
+                "theme_name": "litera",
+                "exclude_notifications": []
+            }
+        }
+    }
+}

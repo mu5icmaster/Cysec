@@ -1,5 +1,0 @@
-/* Small custom touches */
-body { scroll-behavior: smooth; }
-.card-img-top { object-fit: cover; height: 180px; }
-.form-control, .form-select { border-radius: .6rem; }
-.btn { border-radius: .8rem; }
