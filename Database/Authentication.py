@@ -118,6 +118,7 @@ class authentication:
             logger.bind(id=str(employee_id)).success("Successful authentication", event="Authentication",
                                                      placeholder="", type="notification")
             return True
+        
 
         self._record_failure(email)
         return False

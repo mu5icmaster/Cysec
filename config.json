@@ -12,6 +12,10 @@
                 "profile_picture": "user_1a",
                 "theme_name": "litera",
                 "exclude_notifications": []
+            },
+            "2": {
+                "profile_picture": "user_1a",
+                "theme_name": "litera"
             }
         }
     }

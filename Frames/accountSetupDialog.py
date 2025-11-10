@@ -1,145 +1,226 @@
-# Frames/accountSetupDialog.py
 import re
 import ttkbootstrap as ttk
-from ttkbootstrap.constants import *
 from ttkbootstrap.dialogs import Messagebox
-from Database.Authentication import authentication
 
-# at the top of the file (keep existing imports/constants)
-ROLE_MAP = {
-    "Administrator": 1,
-    "Supervisor": 2,
-    "Worker": 3,
-}
+from Database.Authentication import authentication
+from Database import Database
+
 
 class AccountSetupDialog(ttk.Toplevel):
     """
-    Reusable account creation dialog.
-    - force_admin=True  -> role fixed to Administrator
-    - fixed_role="Worker"/"Supervisor"/"Administrator" -> role fixed to that value
-    - If neither is set, user can choose the role.
-    Calls `on_success(email)` when an account is created successfully.
+    Create Account dialog.
+
+    - Role dropdown is populated from DB (excludes Administrator).
+    - Resolves role_id by role *name* selected.
+    - Admins can choose role; non-admin flows can keep the role locked.
+
+    Args:
+        parent: tk parent window
+        force_admin (bool): If True, role combobox is enabled.
+        fixed_role (str|None): If provided, locks the role (e.g., "Worker" or "Supervisor").
+        on_success (callable|None): Called with email on successful creation.
     """
 
     def __init__(self, parent, force_admin: bool = False, fixed_role: str | None = None, on_success=None):
         super().__init__(parent)
         self.title("Create Account")
-        self.resizable(False, False)
         self.transient(parent)
-        self.grab_set()
+        self.takefocus = True
+        self.place_window_center()
+        self.resizable(False, False)
 
-        self.on_success = on_success or (lambda email: None)
+        self.on_success = on_success
         self.auth = authentication()
-        self.force_admin = force_admin
-        self.fixed_role = (fixed_role if fixed_role in ROLE_MAP else None)
+        self.db = Database.DatabaseConnection()
 
-        frame = ttk.Frame(self, padding=16)
-        frame.grid(row=0, column=0, sticky="nsew")
-        for i in range(2):
-            frame.columnconfigure(i, weight=1)
+        # ---- form model ----
+        self.full_name = ttk.StringVar()
+        self.email = ttk.StringVar()
+        self.contact = ttk.StringVar()
+        self.role = ttk.StringVar()
+        self.password = ttk.StringVar()
+        self.password2 = ttk.StringVar()
 
-        ttk.Label(frame, text="Create Account", font="-size 14 -weight bold").grid(row=0, column=0, columnspan=2, pady=(0, 10))
+        # Dynamic role choices from DB (exact names)
+        self.role_choices = self._get_role_choices()  # e.g. ["Worker","Supervisor"]
+        default_role = "Worker" if "Worker" in self.role_choices else (self.role_choices[0] if self.role_choices else "Worker")
 
-        # Name
-        ttk.Label(frame, text="Full Name").grid(row=1, column=0, sticky="w")
-        self.var_name = ttk.StringVar()
-        ttk.Entry(frame, textvariable=self.var_name, width=34).grid(row=1, column=1, sticky="ew", pady=4)
+        # Decide role behavior
+        if fixed_role and fixed_role in self.role_choices:
+            self.role.set(fixed_role)
+            self.role_disabled = True and not force_admin
+        else:
+            self.role.set(default_role)
+            self.role_disabled = (not force_admin)  # locked unless admin
 
-        # Email
-        ttk.Label(frame, text="Email").grid(row=2, column=0, sticky="w")
-        self.var_email = ttk.StringVar()
-        ttk.Entry(frame, textvariable=self.var_email, width=34).grid(row=2, column=1, sticky="ew", pady=4)
+        # ---- layout ----
+        pad = {"padx": (18, 18), "pady": (6, 6)}
+        header = ttk.Label(self, text="Create Account", font="-size 16 -weight bold")
+        header.grid(row=0, column=0, columnspan=2, pady=(14, 4))
 
-        # Phone
-        ttk.Label(frame, text="Contact Number").grid(row=3, column=0, sticky="w")
-        self.var_phone = ttk.StringVar()
-        ttk.Entry(frame, textvariable=self.var_phone, width=34).grid(row=3, column=1, sticky="ew", pady=4)
+        ttk.Label(self, text="Full Name").grid(row=1, column=0, sticky="e", **pad)
+        ttk.Entry(self, textvariable=self.full_name, width=32).grid(row=1, column=1, sticky="we", **pad)
 
-        # Role
-        ttk.Label(frame, text="Role").grid(row=4, column=0, sticky="w")
-        default_role = "Administrator" if self.force_admin else (self.fixed_role or "Worker")
-        self.var_role = ttk.StringVar(value=default_role)
-        role_values = ["Administrator", "Supervisor", "Worker"]
-        self.role_widget = ttk.Combobox(frame, textvariable=self.var_role, values=role_values, state="readonly", width=32)
-        self.role_widget.grid(row=4, column=1, sticky="ew", pady=4)
-        if self.force_admin or self.fixed_role:
-            self.role_widget.configure(state="disabled")
+        ttk.Label(self, text="Email").grid(row=2, column=0, sticky="e", **pad)
+        ttk.Entry(self, textvariable=self.email, width=32).grid(row=2, column=1, sticky="we", **pad)
 
-        # Passwords
-        ttk.Label(frame, text="Password").grid(row=5, column=0, sticky="w")
-        self.var_pw = ttk.StringVar()
-        ttk.Entry(frame, textvariable=self.var_pw, show="*", width=34).grid(row=5, column=1, sticky="ew", pady=4)
+        ttk.Label(self, text="Contact Number").grid(row=3, column=0, sticky="e", **pad)
+        ttk.Entry(self, textvariable=self.contact, width=32).grid(row=3, column=1, sticky="we", **pad)
 
-        ttk.Label(frame, text="Confirm Password").grid(row=6, column=0, sticky="w")
-        self.var_pw2 = ttk.StringVar()
-        ttk.Entry(frame, textvariable=self.var_pw2, show="*", width=34).grid(row=6, column=1, sticky="ew", pady=4)
+        ttk.Label(self, text="Role").grid(row=4, column=0, sticky="e", **pad)
+        role_cb = ttk.Combobox(self, values=self.role_choices or ["Worker"], textvariable=self.role, width=29, state="readonly")
+        role_cb.grid(row=4, column=1, sticky="we", **pad)
+        if self.role_disabled:
+            role_cb.configure(state="disabled")
 
-        # Error label
-        self.err = ttk.Label(frame, text="", bootstyle="danger")
-        self.err.grid(row=7, column=0, columnspan=2, sticky="we")
+        ttk.Label(self, text="Password").grid(row=5, column=0, sticky="e", **pad)
+        ttk.Entry(self, textvariable=self.password, show="*", width=32).grid(row=5, column=1, sticky="we", **pad)
+
+        ttk.Label(self, text="Confirm Password").grid(row=6, column=0, sticky="e", **pad)
+        ttk.Entry(self, textvariable=self.password2, show="*", width=32).grid(row=6, column=1, sticky="we", **pad)
 
         # Buttons
-        btns = ttk.Frame(frame)
-        btns.grid(row=8, column=0, columnspan=2, sticky="e", pady=(10, 0))
-        ttk.Button(btns, text="Cancel", bootstyle="secondary", command=self._on_cancel).grid(row=0, column=0, padx=(0, 8))
-        ttk.Button(btns, text="Create", bootstyle="success", command=self._on_create).grid(row=0, column=1)
+        btn_frame = ttk.Frame(self)
+        btn_frame.grid(row=7, column=0, columnspan=2, pady=(10, 14))
+        ttk.Button(btn_frame, text="Cancel", bootstyle="secondary", command=self.destroy).grid(row=0, column=0, padx=6)
+        ttk.Button(btn_frame, text="Create Account", bootstyle="success", command=self._save).grid(row=0, column=1, padx=6)
 
-        self._center(480, 300)
-        self.wait_visibility()
-        self.focus_force()
+        self.columnconfigure(1, weight=1)
+        self.bind("<Return>", lambda e: self._save())
+        self.bind("<Escape>", lambda e: self.destroy())
 
+    # ---------- validation & save ----------
 
-    def _center(self, w: int, h: int):
-        self.update_idletasks()
-        x = self.winfo_screenwidth() // 2 - w // 2
-        y = self.winfo_screenheight() // 3 - h // 2
-        self.geometry(f"{w}x{h}+{x}+{y}")
+    def _validate(self) -> tuple[bool, str]:
+        name = self.full_name.get().strip()
+        email = self.email.get().strip()
+        contact = self.contact.get().strip()
+        role = (self.role.get() or "").strip()
+        pw1 = self.password.get()
+        pw2 = self.password2.get()
 
-    def _on_cancel(self):
-        self.destroy()
+        if not name or not email or not contact or not pw1 or not pw2:
+            return False, "Please fill in all fields."
 
-    def _on_create(self):
-        role_name = "Administrator" if self.force_admin else (self.fixed_role or role_name)
-        role_id = ROLE_MAP.get(role_name, 3)
-        name = self.var_name.get().strip()
-        email = (self.var_email.get() or "").strip().lower()
-        phone = self.var_phone.get().strip()
-        role_name = self.var_role.get().strip()
-        pw = self.var_pw.get()
-        pw2 = self.var_pw2.get()
+        if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
+            return False, "Please enter a valid email address."
 
-        # validate
-        if not name:
-            self.err.configure(text="Name is required.")
-            return
-        if not email_ok(email):
-            self.err.configure(text="Enter a valid email.")
-            return
-        if not phone.isdigit():
-            self.err.configure(text="Contact number must be digits only.")
-            return
-        if pw != pw2:
-            self.err.configure(text="Passwords do not match.")
-            return
-        if not strong_pw(pw):
-            self.err.configure(text="Password must be ≥8 chars and include letters and numbers.")
+        if not re.match(r"^[0-9+\-\s]{6,20}$", contact):
+            return False, "Please enter a valid contact number."
+
+        if pw1 != pw2:
+            return False, "Passwords do not match."
+
+        if role not in self.role_choices:
+            return False, "Invalid role selected."
+
+        return True, ""
+
+    def _save(self):
+        ok, msg = self._validate()
+        if not ok:
+            Messagebox.show_error(msg, "Validation Error", parent=self)
             return
 
-        # enforce Admin role when forced
-        if self.force_admin:
-            role_name = "Administrator"
+        name = self.full_name.get().strip()
+        email = self.email.get().strip()
+        contact = self.contact.get().strip()
+        role_name = self.role.get().strip()
+        pw = self.password.get()
 
-        role_id = ROLE_MAP.get(role_name, 3)
+        role_id = self._lookup_role_id(role_name)
+        if role_id is None:
+            Messagebox.show_error("Could not resolve role id for selected role.", "Create Account", parent=self)
+            return
 
-        ok = self.auth.createAccount(email, role_id, name, phone, pw)
-        if ok:
-            # clear secrets
-            self.var_pw.set("")
-            self.var_pw2.set("")
-            Messagebox.ok(f"{role_name} account created for: {email}", "Success")
+        try:
+            created = self.auth.createAccount(
+                employeeEmail=email,
+                employeeName=name,
+                employeeRoleID=role_id,
+                employeeContactNumber=contact,
+                employeePassword=pw
+            )
+        except Exception as e:
+            Messagebox.show_error(f"Failed to create account:\n{e}", "Database Error", parent=self)
+            return
+
+        if created is False:
+            Messagebox.show_error("Could not create the account. It may already exist.", "Create Account", parent=self)
+            return
+
+        Messagebox.show_info(f"Account created for {email}.", "Create Account", parent=self)
+        if callable(self.on_success):
             try:
                 self.on_success(email)
-            finally:
-                self.destroy()
-        else:
-            self.err.configure(text="Failed to create account. Email may already exist.")
+            except Exception:
+                pass
+        self.destroy()
+
+    # ---------- helpers ----------
+
+    def _get_role_choices(self):
+        """Return role names from Roles table, excluding Administrator-like entries."""
+        names = []
+        conn = getattr(self.db, "conn", None) or getattr(self.db, "connection", None)
+        if conn is None:
+            return ["Worker", "Supervisor"]
+        cur = conn.cursor()
+        try:
+            attempts = [
+                ("SELECT role_name FROM Roles", 0),
+                ("SELECT RoleName FROM Roles", 0),
+                ("SELECT name FROM roles", 0),
+            ]
+            for sql, idx in attempts:
+                try:
+                    cur.execute(sql)
+                    rows = cur.fetchall()
+                    if rows:
+                        for r in rows:
+                            n = str(r[idx]).strip()
+                            if n and n.lower() not in ("administrator", "admin"):
+                                names.append(n)
+                        break
+                except Exception:
+                    continue
+            # Deduplicate while preserving order
+            seen = set()
+            unique = []
+            for n in names:
+                if n.lower() not in seen:
+                    seen.add(n.lower())
+                    unique.append(n)
+            return unique or ["Worker", "Supervisor"]
+        finally:
+            try:
+                cur.close()
+            except Exception:
+                pass
+
+    def _lookup_role_id(self, role_name: str):
+        """Resolve role_id by exact role name (case-insensitive)."""
+        conn = getattr(self.db, "conn", None) or getattr(self.db, "connection", None)
+        if conn is None:
+            return None
+        cur = conn.cursor()
+        try:
+            candidates = [
+                ("Roles", "role_id", "role_name"),
+                ("Roles", "RoleID", "RoleName"),
+                ("roles", "id", "name"),
+            ]
+            for table, id_col, name_col in candidates:
+                try:
+                    cur.execute(f"SELECT {id_col} FROM {table} WHERE LOWER({name_col}) = LOWER(?)", (role_name,))
+                    row = cur.fetchone()
+                    if row:
+                        return row[0]
+                except Exception:
+                    continue
+            return None
+        finally:
+            try:
+                cur.close()
+            except Exception:
+                pass

@@ -1,5 +1,4 @@
 import re
-
 import ttkbootstrap as ttk
 from PIL import ImageTk, Image, ImageDraw
 
@@ -20,194 +19,197 @@ from Frames.accountSetupDialog import AccountSetupDialog
 
 
 class navigationFrame(ttk.Frame):
+    """
+    Left navigation + header. Pages mount in self.content_container.
+    Role is resolved by exact join:
+      Workers(RoleID) -> Roles(RoleID) using Workers.WorkerID
+    """
 
-    def __init__(self, master: ttk.window.Window, employeeID: int, rFrame: ttk.Frame) -> None:
-
-        # Button Configuration for roles
-        buttonConfig = {
-            "Worker": ["Dashboard", "Inventory", "Report", "Tasks"],
-            "Supervisor": ["Dashboard", "Product", "Inventory", "Purchase Order", "Sales Order", "Tasks", "Vendor",
-                           "Report"],
-            "Administrator": ["Dashboard", "Product", "Inventory", "Purchase Order", "Sales Order", "Vendor",
-                              "Report", "Add Worker"]
-        }
-
-        # References
+    def __init__(self, master: ttk.window.Window, employeeID: int, rFrame: ttk.Frame, on_logout=None) -> None:
         self.Fonts = fonts()
         self.styleObj = master.style
         self.config = Configuration()
-        self.master: ttk.window.Window = master
-        self.rFrame = rFrame
-        self.db_connection = Database.DatabaseConnection()
-        self.employeeID = employeeID
-        self.name = self.db_connection.query_employee(employeeID)[0]
-        self.role = self.db_connection.query_employee(employeeID)[1]
+        self.master = master
+        self.content_container = rFrame
+        self.db = Database.DatabaseConnection()
+        self.employeeID = int(employeeID)
+        self.on_logout = on_logout
 
-        preferences = self.config.getPreferences(str(self.employeeID))
-        self.styleObj.theme_use(preferences[1])
+        # ---- Exact schema lookups (NO guesses) ----
+        self.name = self._get_name_by_worker_id(self.employeeID) or "User"
+        self.role = self._get_role_name_by_worker_id(self.employeeID) or "Worker"
 
-        # Inherit ttk.Frame, sets colour to warning
+        # Menu by role name from Roles table
+        buttonConfig = {
+            "Worker": ["Dashboard", "Inventory", "Report", "Tasks"],
+            "Supervisor": ["Dashboard", "Product", "Inventory", "Purchase Order", "Sales Order", "Tasks", "Vendor", "Report"],
+            "Administrator": ["Dashboard", "Product", "Inventory", "Purchase Order", "Sales Order", "Vendor", "Report", "Add Worker"]
+        }
+        if self.role not in buttonConfig:
+            self.role = "Worker"
+
+        # Theme
+        prefs = self.config.getPreferences(str(self.employeeID))
+        self.styleObj.theme_use(prefs[1])
+
+        # Frame
         super().__init__(master, bootstyle="warning")
         self.grid(row=0, column=0, sticky="nwes")
 
-        # Application Images
+        # Images
         graphicsPath = self.config.getGraphicsPath()
         self.images = [
-            Image.open(f'{graphicsPath}/settingsIcon.png').resize((40, 40)),
-            self.make_circular_image(f'{graphicsPath}/User_Avatars/{preferences[0]}.png', 200)
+            Image.open(f"{graphicsPath}/settingsIcon.png").resize((40, 40)),
+            self.make_circular_image(f"{graphicsPath}/User_Avatars/{prefs[0]}.png", 200),
         ]
+        self.imageObject = [ImageTk.PhotoImage(im) for im in self.images]
 
-        self.imageObject = []
-        for im in self.images:
-            self.imageObject += [ImageTk.PhotoImage(image=im)]
-
-        # Create Widgets
+        # Layout
         northFrame = ttk.Frame(self, bootstyle="warning", padding=20)
         southFrame = ttk.Frame(self, bootstyle="warning", padding=20)
-
-        KEAILabel = ttk.Label(northFrame, text="KEAI", font=self.Fonts.fonts["header3"], bootstyle="warning-inverse",
-                              foreground="black")
-        settingsIcon = ttk.Button(northFrame, image=self.imageObject[0], bootstyle="warning",
-                                  command=lambda: SettingsPopup(self.master, self.employeeID, self.redisplay_theme))
-        profilePicture = ttk.Label(northFrame, image=self.imageObject[1],
-                                   bootstyle="warning-inverse")
-        userFrame = ttk.Frame(northFrame, bootstyle="warning")
-        userName = ttk.Label(userFrame, text=self.name, font=self.Fonts.fonts["regular2"], bootstyle="warning-inverse",
-                             foreground="black", anchor=ttk.CENTER)
-        userID = ttk.Label(userFrame, text=str(self.role), font=self.Fonts.fonts["regular2"],
-                           bootstyle="warning-inverse", foreground="black", anchor=ttk.CENTER)
-
-        # Grid Frames
         northFrame.grid(row=0, column=0, sticky="nwes")
         southFrame.grid(row=1, column=0, sticky="nwes")
-
         self.rowconfigure(0, weight=1)
         self.rowconfigure(1, weight=10)
         self.columnconfigure(0, weight=1)
 
-        # Grid North Frame
-        KEAILabel.grid(row=1, column=1, sticky="nw")
-        settingsIcon.grid(row=1, column=3, sticky="ne")
-        profilePicture.grid(row=2, column=1, sticky="nws")
+        # Header
+        ttk.Label(northFrame, text="KEAI", font=self.Fonts.fonts["header3"],
+                  bootstyle="warning-inverse", foreground="black").grid(row=1, column=1, sticky="nw")
+        ttk.Button(northFrame, image=self.imageObject[0], bootstyle="warning",
+                   command=lambda: SettingsPopup(self.master, self.employeeID, self.redisplay_theme))\
+            .grid(row=1, column=3, sticky="ne")
+        ttk.Label(northFrame, image=self.imageObject[1], bootstyle="warning-inverse")\
+            .grid(row=2, column=1, sticky="nws")
+        userFrame = ttk.Frame(northFrame, bootstyle="warning")
         userFrame.grid(row=2, column=2, columnspan=2, sticky="nwes")
+        ttk.Label(userFrame, text=self.name, font=self.Fonts.fonts["regular2"],
+                  bootstyle="warning-inverse", foreground="black", anchor=ttk.CENTER)\
+            .grid(row=1, column=1, sticky="swe")
+        ttk.Label(userFrame, text=str(self.role), font=self.Fonts.fonts["regular2"],
+                  bootstyle="warning-inverse", foreground="black", anchor=ttk.CENTER)\
+            .grid(row=2, column=1, sticky="nwe")
 
-        northFrame.rowconfigure(1, weight=1)
-        northFrame.rowconfigure(2, weight=2)
-        northFrame.columnconfigure(1, weight=1)
-        northFrame.columnconfigure(2, weight=2)
-        northFrame.columnconfigure(3, weight=1)
-
-        # Grid User Frame
-        userName.grid(row=1, column=1, sticky="swe")
-        userID.grid(row=2, column=1, sticky="nwe")
-
-        userFrame.rowconfigure(1, weight=1)
-        userFrame.rowconfigure(2, weight=1)
-        userFrame.columnconfigure(1, weight=1)
-
-        # Create and grid buttons
-        self.styleObj.configure(style="dark.Link.TButton", font=self.Fonts.get_font("regular2"), foreground="black")
-        for row, button_text in enumerate(buttonConfig[self.role], start=1):
-            button = ttk.Button(southFrame, text=button_text, bootstyle="dark-link",
-                                command=lambda x=button_text: self.getButtonCommand(x))
-            button.grid(row=row, column=1, sticky="we")
+        # Menu
+        self.styleObj.configure(style="dark.Link.TButton",
+                                font=self.Fonts.get_font("regular2"),
+                                foreground="black")
+        for row, text in enumerate(buttonConfig[self.role], start=1):
+            ttk.Button(southFrame, text=text, bootstyle="dark-link",
+                       command=lambda x=text: self.getButtonCommand(x))\
+                .grid(row=row, column=1, sticky="we")
             southFrame.rowconfigure(row, weight=1)
-        southFrame.rowconfigure(0, weight=1)
+
+        # Logout
+        last_row = len(buttonConfig[self.role]) + 1
+        ttk.Separator(southFrame, orient="horizontal").grid(row=last_row, column=1, sticky="ew", pady=(8, 4))
+        ttk.Button(southFrame, text="Logout", bootstyle="danger-link",
+                   command=(self.on_logout if self.on_logout else self.master.destroy))\
+            .grid(row=last_row + 1, column=1, sticky="we")
         southFrame.columnconfigure(1, weight=1)
 
-        if self.role == "Worker":
-            southFrame.rowconfigure(4, weight=10)
-        else:
-            southFrame.rowconfigure(8, weight=1)
+        # Right container stretch
+        self.content_container.grid_propagate(True)
+        self.content_container.rowconfigure(0, weight=1)
+        self.content_container.columnconfigure(0, weight=1)
 
-    def getButtonCommand(self, button_text):
-        if button_text == "Dashboard":
-            self.rFrame.destroy()
-            self.rFrame = DashboardFrame(self.master, self.role, self.employeeID)
+    # ---------- Exact DB lookups for your schema ----------
 
-        elif button_text == "Product":
-            self.rFrame.destroy()
-            self.rFrame = productFrame(self.master, self.role, self.employeeID)
+    def _conn(self):
+        return getattr(self.db, "conn", None) or getattr(self.db, "connection", None)
 
-        elif button_text == "Inventory":
-            self.rFrame.destroy()
-            self.rFrame = inventoryFrame(self.master, self.role, self.employeeID)
+    def _get_name_by_worker_id(self, worker_id: int):
+        """
+        Workers(WorkerID, RoleID, Name, ContactNumber)
+        """
+        conn = self._conn()
+        if conn is None:
+            return None
+        cur = conn.cursor()
+        try:
+            cur.execute("SELECT Name FROM Workers WHERE WorkerID = ?", (worker_id,))
+            row = cur.fetchone()
+            return str(row[0]) if row and row[0] is not None else None
+        except Exception:
+            return None
+        finally:
+            cur.close()
 
-        elif button_text == "Purchase Order":
-            self.rFrame.destroy()
-            self.rFrame = purchaseOrderFrame(self.master, self.role, self.employeeID)
+    def _get_role_name_by_worker_id(self, worker_id: int):
+        """
+        JOIN: Workers(RoleID) -> Roles(RoleID) to get Roles.RoleName
+        """
+        conn = self._conn()
+        if conn is None:
+            return None
+        cur = conn.cursor()
+        try:
+            cur.execute("""
+                SELECT r.RoleName
+                FROM Workers w
+                JOIN Roles r ON w.RoleID = r.RoleID
+                WHERE w.WorkerID = ?
+            """, (worker_id,))
+            row = cur.fetchone()
+            return str(row[0]) if row and row[0] is not None else None
+        except Exception:
+            return None
+        finally:
+            cur.close()
 
-        elif button_text == "Sales Order":
-            self.rFrame.destroy()
-            self.rFrame = salesOrderFrame(self.master, self.role, self.employeeID)
+    # ---------- Page mounting ----------
 
-        elif button_text == "Tasks":
-            self.rFrame.destroy()
-            self.rFrame = taskFrame(self.master, self.role, self.employeeID)
+    def _clear_content(self):
+        for child in self.content_container.winfo_children():
+            try:
+                child.destroy()
+            except Exception:
+                pass
 
-        elif button_text == "Vendor":
-            self.rFrame.destroy()
-            self.rFrame = vendorFrame(self.master, self.role, self.employeeID)
+    def _show_page(self, page_cls):
+        self._clear_content()
+        page = page_cls(self.content_container, self.role, self.employeeID)
+        try:
+            page.grid(row=0, column=0, sticky="nsew")
+        except Exception:
+            pass
 
-        elif button_text == "Report":
-            self.rFrame.destroy()
-            self.rFrame = ReportFrame(self.master, self.role, self.employeeID)
-
-        elif button_text == "Add Worker":
-            # Open the account creation dialog with Role dropdown enabled.
-            # Admin can choose either Supervisor or Worker (default Worker).
-            AccountSetupDialog(self.master, force_admin=False, fixed_role=None, on_success=lambda email: None)
+    def getButtonCommand(self, text):
+        mapping = {
+            "Dashboard": DashboardFrame,
+            "Product": productFrame,
+            "Inventory": inventoryFrame,
+            "Purchase Order": purchaseOrderFrame,
+            "Sales Order": salesOrderFrame,
+            "Tasks": taskFrame,
+            "Vendor": vendorFrame,
+            "Report": ReportFrame
+        }
+        if text in mapping:
+            self._show_page(mapping[text])
+        elif text == "Add Worker":
+            AccountSetupDialog(
+                self.master,
+                force_admin=(self.role == "Administrator"),
+                fixed_role=None,
+                on_success=lambda email: None
+            )
 
     def redisplay_theme(self):
-        jesus = {
-            ".!dashboardframe": "Dashboard",
-            ".!productframe": "Product",
-            ".!inventoryframe": "Inventory",
-            ".!purchaseorderframe": "Purchase Order",
-            ".!salesorderframe": "Sales Order",
-            ".!taskframe": "Tasks",
-            ".!vendorframe": "Vendor"
-        }
-        for crucifix in jesus:
-            if re.search(r".![a-z]+", str(self.rFrame)).group() == crucifix:
-                frame = jesus[crucifix]
-                break
-        self.rFrame.destroy()
+        current_cls = None
+        if self.content_container.winfo_children():
+            current_cls = type(self.content_container.winfo_children()[0])
         self.destroy()
-        new = navigationFrame(self.master, self.employeeID, self.rFrame)
-        new.getButtonCommand(frame)
+        new = navigationFrame(self.master, self.employeeID, self.content_container, on_logout=self.on_logout)
+        if current_cls is not None:
+            new._show_page(current_cls)
 
     def make_circular_image(self, image_path, output_diameter):
-
         img = Image.open(image_path).resize((output_diameter, output_diameter))
-
         mask = Image.new('L', (output_diameter, output_diameter), 0)
         draw = ImageDraw.Draw(mask)
         draw.ellipse((0, 0, output_diameter, output_diameter), fill=255)
-
         output_img = Image.new(img.mode, (output_diameter, output_diameter), 0)
         output_img.paste(img, mask=mask)
-
         radius = int(output_diameter / 2)
-        output_img = output_img.resize((radius, radius))
-
-        return output_img
-
-
-# Test Case
-if __name__ == "__main__":
-    # Create Main Window, and center it
-    window = ttk.window.Window(title="Keai IWMS", themename="flatly", size=(1280, 720))
-    ttk.window.Window.place_window_center(window)
-    window.rowconfigure(0, weight=1)
-    window.columnconfigure(0, weight=1, minsize=200)
-    window.columnconfigure(1, weight=20)
-
-    # Creates Navigation Frame
-    rFrame = ttk.Frame(window)
-    lFrame = navigationFrame(window, 1, rFrame)
-    lFrame.getButtonCommand("Inventory")
-    lFrame.redisplay_theme()
-
-    # Starts Event Main Loop
-    window.mainloop()
+        return output_img.resize((radius, radius))
