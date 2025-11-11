@@ -107,6 +107,10 @@ class AccountSetupDialog(ttk.Toplevel):
 
         if not re.match(r"^[0-9+\-\s]{6,20}$", contact):
             return False, "Please enter a valid contact number."
+        
+        # At least 8 characters
+        if len(pw1) < 8:
+            return False, "Password must be at least 8 characters long."
 
         if pw1 != pw2:
             return False, "Passwords do not match."

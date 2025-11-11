@@ -64,7 +64,7 @@ class Login(ttk.Frame):
         password = self.text["password"].get()
 
         try:
-        # 1) 账号密码校验
+        # 1) Account Password Verification
             if not self.auth.authenticate(email, password):
                 self._error.configure(text="Invalid Email or Password")
                 return
