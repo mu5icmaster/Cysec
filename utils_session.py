@@ -11,11 +11,10 @@ class SessionTimeout:
         self._last = time.time()
         self._job = None
 
-        # 绑定“用户活动”事件（尽量轻量）
+        
         for ev in ("<Key>", "<Button>", "<MouseWheel>"):
             root.bind_all(ev, self._mark_activity, add="+")
-        # 如果你愿意也可以加 "<Motion>"，但它事件很频繁
-        # root.bind_all("<Motion>", self._mark_activity, add="+")
+        
 
         self._tick()
 
