@@ -67,3 +67,9 @@
 2025-11-12 01:04:13 | Authentication Event | Employee ID: 1 | SUCCESS
 2025-11-12 02:27:27 | Authentication Event | Employee ID: 1 | SUCCESS
 2025-11-12 02:27:27 | Authentication Event | Employee ID: 1 | SUCCESS
+2025-11-12 02:40:04 | Authentication Event | Employee ID: 1 | SUCCESS
+2025-11-12 02:40:04 | Authentication Event | Employee ID: 1 | SUCCESS
+2025-11-12 02:54:42 | User Activities Report | Employee ID: 1 | Create Vendor | 阿三 | INFO
+2025-11-12 02:54:55 | New Vendor Created Event | Employee ID: 1 | SUCCESS
+2025-11-12 02:54:55 | User Activities Report | Employee ID: 1 | Create Vendor | as | INFO
+2025-11-12 02:55:00 | User Activities Report | Employee ID: 1 | Create Vendor | as | INFO
