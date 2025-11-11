@@ -38,3 +38,28 @@
 2025-11-10 10:46:56 | Authentication Event | Employee ID: 2 | SUCCESS
 2025-11-10 10:47:13 | Authentication Event | Employee ID: 1 | SUCCESS
 2025-11-10 10:47:13 | Authentication Event | Employee ID: 1 | SUCCESS
+2025-11-11 21:29:32 | Authentication Event | Employee ID: 1 | SUCCESS
+2025-11-11 21:29:32 | Authentication Event | Employee ID: 1 | SUCCESS
+2025-11-11 21:30:07 | Authentication Event | Employee ID: 1 | SUCCESS
+2025-11-11 21:30:07 | Authentication Event | Employee ID: 1 | SUCCESS
+2025-11-11 21:33:52 | New Vendor Created Event | Employee ID: 1 | SUCCESS
+2025-11-11 21:33:52 | User Activities Report | Employee ID: 1 | Create Vendor | a | INFO
+2025-11-11 22:35:48 | User Activities Report | Employee ID: 1 | Create Vendor | a | INFO
+2025-11-11 22:36:14 | New Vendor Created Event | Employee ID: 1 | SUCCESS
+2025-11-11 22:36:14 | User Activities Report | Employee ID: 1 | Create Vendor | 阿三 | INFO
+2025-11-12 00:01:11 | Authentication Event | Employee ID: 1 | SUCCESS
+2025-11-12 00:01:11 | Authentication Event | Employee ID: 1 | SUCCESS
+2025-11-12 00:09:57 | Authentication Event | Employee ID: 3 | SUCCESS
+2025-11-12 00:09:57 | Authentication Event | Employee ID: 3 | SUCCESS
+2025-11-12 00:16:13 | Authentication Event | Employee ID: 3 | SUCCESS
+2025-11-12 00:16:13 | Authentication Event | Employee ID: 3 | SUCCESS
+2025-11-12 00:21:59 | Authentication Event | Employee ID: 3 | SUCCESS
+2025-11-12 00:21:59 | Authentication Event | Employee ID: 3 | SUCCESS
+2025-11-12 00:23:08 | Authentication Event | Employee ID: 1 | SUCCESS
+2025-11-12 00:23:08 | Authentication Event | Employee ID: 1 | SUCCESS
+2025-11-12 00:29:08 | Authentication Event | Employee ID: 3 | SUCCESS
+2025-11-12 00:29:08 | Authentication Event | Employee ID: 3 | SUCCESS
+2025-11-12 00:29:57 | Authentication Event | Employee ID: 1 | SUCCESS
+2025-11-12 00:29:57 | Authentication Event | Employee ID: 1 | SUCCESS
+2025-11-12 00:31:40 | Authentication Event | Employee ID: 4 | SUCCESS
+2025-11-12 00:31:40 | Authentication Event | Employee ID: 4 | SUCCESS

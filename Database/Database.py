@@ -7,6 +7,8 @@ import json
 from ttkbootstrap.toast import ToastNotification
 
 from configuration import Configuration
+from utils_otp import now, MAX_ATTEMPTS
+
 
 
 def singleton(cls):
@@ -55,8 +57,11 @@ class DatabaseConnection:
         logger.add(f"{self.config.getLogFile()}", retention="3 months",
                    filter=self.log_report_filter,
                    format="""{time:YYYY-MM-DD HH:mm:ss} | {extra[key]} Report | Employee ID: {extra[id]} | {message} | {level}""")
-        self.logger: logger = logger.bind(id='1', placeholder="", type="notification")
+        self.logger = logger.bind(id='1', placeholder="", type="notification")
         self.employeeID = 1
+
+        # === ensure OTP table exists ===
+        self._ensure_otp_table()
 
 
     def __enter__(self):
@@ -1650,6 +1655,68 @@ class DatabaseConnection:
         self.cursor.execute("INSERT INTO Workers (RoleID, Name, ContactNumber) VALUES (1, 'Ahmad', '0161123344');")
         self.cursor.execute("INSERT INTO Accounts (WorkerID, Email, HashedPW) VALUES (1, 'ahmad@gmail.com', ?)",
                             (b'$2b$14$OQM2OwY9kdaOeA/IE0hhPeXwrQhbZwVxxJvlynbkRDfXB1dm6XSOy',))
+        
+            # =======================
+    # ===== OTP support =====
+    # =======================
+
+    def _ensure_otp_table(self):
+        cur = self.connection.cursor()
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS OTP_Codes (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          WorkerID INTEGER NOT NULL,
+          CodeHash TEXT NOT NULL,
+          CreatedAt INTEGER NOT NULL,
+          ExpiresAt INTEGER NOT NULL,
+          ConsumedAt INTEGER,
+          Attempts INTEGER NOT NULL DEFAULT 0
+        );
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_otp_worker ON OTP_Codes(WorkerID);")
+        self.connection.commit()
+        cur.close()
+
+    def otp_insert(self, worker_id: int, code_hash: bytes, ttl_sec: int):
+        cur = self.connection.cursor()
+        cur.execute(
+            "INSERT INTO OTP_Codes(WorkerID, CodeHash, CreatedAt, ExpiresAt) VALUES (?, ?, ?, ?)",
+            (worker_id, code_hash.decode() if isinstance(code_hash, bytes) else code_hash, now(), now()+ttl_sec)
+        )
+        self.connection.commit()
+        cur.close()
+
+    def otp_get_latest_active(self, worker_id: int):
+        cur = self.connection.cursor()
+        cur.execute(
+            """SELECT id, CodeHash, ExpiresAt, Attempts
+               FROM OTP_Codes
+               WHERE WorkerID=? AND ConsumedAt IS NULL
+               ORDER BY id DESC LIMIT 1""",
+            (worker_id,)
+        )
+        row = cur.fetchone()
+        cur.close()
+        return row
+
+    def otp_consume(self, otp_id: int):
+        cur = self.connection.cursor()
+        cur.execute("UPDATE OTP_Codes SET ConsumedAt=? WHERE id=?", (now(), otp_id))
+        self.connection.commit()
+        cur.close()
+
+    def otp_inc_attempt(self, otp_id: int):
+        cur = self.connection.cursor()
+        cur.execute("UPDATE OTP_Codes SET Attempts=Attempts+1 WHERE id=?", (otp_id,))
+        self.connection.commit()
+        cur.close()
+
+    def otp_cleanup(self):
+        cur = self.connection.cursor()
+        cur.execute("DELETE FROM OTP_Codes WHERE (ConsumedAt IS NOT NULL) OR (ExpiresAt < ?)", (now(),))
+        self.connection.commit()
+        cur.close()
+
 
 
 # Test Case
