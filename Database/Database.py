@@ -1717,6 +1717,59 @@ class DatabaseConnection:
         self.connection.commit()
         cur.close()
 
+    # --- Logs helpers ---
+    def log_event(self, actor_id: int, actor_name: str, action: str,
+                  target_type: str, target_id: str|int|None, detail: str=""):
+        cur = self.connection.cursor()
+        cur.execute(
+            "INSERT INTO Logs(actor_id, actor_name, action, target_type, target_id, detail) "
+            "VALUES(?, ?, ?, ?, ?, ?)",
+            (actor_id, actor_name, action, target_type, str(target_id) if target_id is not None else None, detail)
+        )
+        self.connection.commit()
+        cur.close()
+
+    def logs_latest(self, limit: int = 50):
+        cur = self.connection.cursor()
+        cur.execute("""
+            SELECT id, actor_name, action, target_type, target_id,
+                   datetime(created_at, 'unixepoch') as ts
+            FROM Logs
+            ORDER BY id DESC
+            LIMIT ?
+        """, (limit,))
+        rows = cur.fetchall()
+        cur.close()
+        return rows
+
+    def logs_by_actor(self, actor_id: int, limit: int = 50):
+        cur = self.connection.cursor()
+        cur.execute("""
+            SELECT id, actor_name, action, target_type, target_id,
+                   datetime(created_at, 'unixepoch') as ts
+            FROM Logs
+            WHERE actor_id = ?
+            ORDER BY id DESC
+            LIMIT ?
+        """, (actor_id, limit))
+        rows = cur.fetchall()
+        cur.close()
+        return rows
+    
+    def logs_latest(self, limit: int = 100):
+        cur = self.conn.cursor() if hasattr(self, "conn") else self.connection.cursor()
+        cur.execute("""
+            SELECT id, actor_name, action, target_type, target_id,
+                    datetime(created_at, 'unixepoch') as ts
+            FROM Logs
+            ORDER BY id DESC
+            LIMIT ?
+        """, (limit,))
+        rows = cur.fetchall()
+        cur.close()
+        return rows  # [(_id, actor_name, action, target_type, target_id, ts), ...]
+
+
 
 
 # Test Case

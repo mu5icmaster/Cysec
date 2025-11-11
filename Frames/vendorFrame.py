@@ -104,12 +104,22 @@ class vendorFrame(pageFrame):
                     toplevel.errVar[3].set("Submission failed to process")
                     Messagebox.show_error("Create vendor failed.", "Database", parent=toplevel)
                     return
+                
+                self.db_connection.log_event(
+                    actor_id=self.employeeID,
+                    actor_name=self.name if hasattr(self, "name") else str(self.employeeID),
+                    action="CREATE_VENDOR",
+                    target_type="Vendor",
+                    target_id=toplevel.stringVar[0].get(),  # Vendor ID
+                    detail=f"name={toplevel.stringVar[1].get()}, email={toplevel.stringVar[2].get()}"
+                )    
 
                 self._load_table_rows(self.db_connection.query_vendor_all())
                 toplevel.destroy()
             except Exception as e:
                 toplevel.errVar[3].set("Submission failed to process")
                 Messagebox.show_error(f"Database error:\n{e}", "Database", parent=toplevel)
+
 
 
         # Creates Widgets
@@ -172,6 +182,15 @@ class vendorFrame(pageFrame):
                     toplevel.errVar[4].set("Submission failed to process")
                     Messagebox.show_error("Update vendor failed.", "Database", parent=toplevel)
                     return
+                
+                self.db_connection.log_event(
+                    actor_id=self.employeeID,
+                    actor_name=self.name if hasattr(self, "name") else str(self.employeeID),
+                    action="UPDATE_VENDOR",
+                    target_type="Vendor",
+                    target_id=toplevel.stringVar[0].get(),
+                    detail=f"name={toplevel.stringVar[1].get()}, email={toplevel.stringVar[2].get()}"
+                )
 
                 self._load_table_rows(self.db_connection.query_vendor_all())
                 toplevel.destroy()
@@ -227,6 +246,15 @@ class vendorFrame(pageFrame):
         if popup.deleteDialog(self) == "OK":
             if self.db_connection.delete_vendor(rowDetails[0]):
                 self._load_table_rows(self.db_connection.query_vendor_all())
+
+                self.db_connection.log_event(
+                    actor_id=self.employeeID,
+                    actor_name=self.name if hasattr(self, "name") else str(self.employeeID),
+                    action="DELETE_VENDOR",
+                    target_type="Vendor",
+                    target_id=rowDetails[0],  # 被删除的 Vendor ID
+                    detail=""
+                )
             else:
                 popup.deleteFail(self)
 

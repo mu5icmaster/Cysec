@@ -1,5 +1,6 @@
 import ttkbootstrap as ttk
 from Frames.Login import Login
+from utils_session import SessionTimeout
 from Frames.navigationFrame import navigationFrame
 
 
