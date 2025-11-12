@@ -1,7 +1,14 @@
 import ttkbootstrap as ttk
 from ttkbootstrap.dialogs import Messagebox
-from datetime import datetime
+from datetime import datetime, timezone
 from Database.Database import DatabaseConnection
+
+try:
+    from zoneinfo import ZoneInfo     # Python 3.9+
+    LOCAL_TZ = ZoneInfo("Asia/Kuala_Lumpur")
+except Exception:
+    # 退化：取系统本地时区（若没有 tzdata，可 pip install tzdata）
+    LOCAL_TZ = datetime.now().astimezone().tzinfo
 
 
 class LoggingFrame(ttk.Frame):
@@ -152,8 +159,29 @@ class LoggingFrame(ttk.Frame):
     # ---------- 工具 ----------
     @staticmethod
     def _format_ts(ts: str) -> str:
-        """支持秒级时间戳或已是字符串的日期。"""
+        """
+        统一把数据库里的时间转成本地可读时间。
+        支持：epoch 秒/毫秒；ISO 字符串（有/无 Z）。
+        所有“无时区”的时间都按 UTC 处理，再转 Asia/Kuala_Lumpur。
+        """
+        s = str(ts).strip()
+
+    # 1) 纯数字：epoch（可能是秒，也可能是毫秒）
+        if s.isdigit():
+            t = int(s)
+            if t > 1_000_000_000_000:   # 毫秒 -> 秒
+                t //= 1000
+            dt = datetime.fromtimestamp(t, tz=timezone.utc).astimezone(LOCAL_TZ)
+            return dt.strftime("%Y-%m-%d %H:%M:%S")
+
+    # 2) 文本：尝试 ISO 格式（'2025-11-11 13:02:03' / '2025-11-11T13:02:03Z'）
         try:
-            return datetime.fromtimestamp(int(ts)).strftime("%Y-%m-%d %H:%M:%S")
+            s2 = s.replace("T", " ").replace("Z", "")  # 容错
+            dt = datetime.fromisoformat(s2)
+            if dt.tzinfo is None:                      # 无 tz -> 视为 UTC
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt.astimezone(LOCAL_TZ).strftime("%Y-%m-%d %H:%M:%S")
         except Exception:
-            return str(ts)
+        # 其它格式，原样返回
+            return s
+

@@ -108,3 +108,32 @@
 2025-11-12 05:58:49 | Authentication Event | Employee ID: 1 | SUCCESS
 2025-11-12 06:01:14 | Authentication Event | Employee ID: 1 | SUCCESS
 2025-11-12 06:01:14 | Authentication Event | Employee ID: 1 | SUCCESS
+2025-11-12 06:59:53 | Authentication Event | Employee ID: 1 | SUCCESS
+2025-11-12 06:59:53 | Authentication Event | Employee ID: 1 | SUCCESS
+2025-11-12 07:22:56 | Authentication Event | Employee ID: 1 | SUCCESS
+2025-11-12 07:22:56 | Authentication Event | Employee ID: 1 | SUCCESS
+2025-11-13 04:33:36 | Authentication Event | Employee ID: 1 | SUCCESS
+2025-11-13 04:33:36 | Authentication Event | Employee ID: 1 | SUCCESS
+2025-11-13 04:44:48 | Authentication Event | Employee ID: 1 | SUCCESS
+2025-11-13 04:44:48 | Authentication Event | Employee ID: 1 | SUCCESS
+2025-11-13 04:46:17 | New Product Added Event | Employee ID: 1 | SUCCESS
+2025-11-13 04:46:17 | Out of Stock Alert Event | Employee ID: 1 | WARNING
+2025-11-13 04:46:17 | User Activities Report | Employee ID: 1 | Create New Product | [FUR-TBL-M_BR-001] - Chair (RM20.00) [Hi] | INFO
+2025-11-13 04:47:22 | User Activities Report | Employee ID: 1 | Delete Product | [FUR-TBL-M_BR-001] - Chair | INFO
+2025-11-13 04:49:00 | New Vendor Created Event | Employee ID: 1 | SUCCESS
+2025-11-13 04:49:00 | User Activities Report | Employee ID: 1 | Create Vendor | Aiken | INFO
+2025-11-13 04:55:28 | Authentication Event | Employee ID: 1 | SUCCESS
+2025-11-13 04:55:28 | Authentication Event | Employee ID: 1 | SUCCESS
+2025-11-13 04:57:38 | New Product Added Event | Employee ID: 1 | SUCCESS
+2025-11-13 04:57:38 | Out of Stock Alert Event | Employee ID: 1 | WARNING
+2025-11-13 04:57:38 | User Activities Report | Employee ID: 1 | Create New Product | [FUR-TBL-M-BR-001] - Table Chair (RM30) [Aiken] | INFO
+2025-11-13 05:11:44 | Authentication Event | Employee ID: 1 | SUCCESS
+2025-11-13 05:11:44 | Authentication Event | Employee ID: 1 | SUCCESS
+2025-11-13 05:12:34 | New Vendor Created Event | Employee ID: 1 | SUCCESS
+2025-11-13 05:12:34 | User Activities Report | Employee ID: 1 | Create Vendor | Ikea | INFO
+2025-11-13 05:23:34 | Authentication Event | Employee ID: 1 | SUCCESS
+2025-11-13 05:23:34 | Authentication Event | Employee ID: 1 | SUCCESS
+2025-11-13 05:24:46 | Authentication Event | Employee ID: 1 | SUCCESS
+2025-11-13 05:24:46 | Authentication Event | Employee ID: 1 | SUCCESS
+2025-11-13 05:37:59 | Authentication Event | Employee ID: 3 | SUCCESS
+2025-11-13 05:37:59 | Authentication Event | Employee ID: 3 | SUCCESS
