@@ -1,16 +1,18 @@
 from Frames.pageFrame import *
 from Database.Database import DatabaseConnection
 from ttkbootstrap.validation import validator, add_validation
-import re
-
+import ttkbootstrap as ttk
 from Frames.popup import popup
+from utils import previewText
 
 
 class inventoryFrame(pageFrame):
+    """
+    Inventory page with Receive / Update / Delete actions.
+    This version fixes Worker-side Update validation/submit and hardens comboboxes.
+    """
 
     def __init__(self, master: ttk.Window, role: str, employeeID: int) -> None:
-
-        # Inherits Page Frame
         super().__init__(master=master,
                          title="Inventory",
                          role=role,
@@ -21,275 +23,271 @@ class inventoryFrame(pageFrame):
                          },
                          employeeID=employeeID)
 
-        # Inserts Tableview columns
-        colNames = ["Inventory ID", "Product No","Name", "Description", "Quantity", "Location", "Batch Number ID"]
-        self._insert_table_headings(colNames)
-
         self.db_connection = DatabaseConnection()
-        self._load_table_rows(self.db_connection.query_inventory_table())
 
-    def _insert_table_headings(self, colNames:list) -> None:
+        # Table columns
+        colNames = ["Inventory ID", "Product No", "Name", "Description", "Quantity", "Location", "Batch Number ID"]
         for name in colNames:
             self._insert_table_columns(name)
+
+        self._load_table_rows(self.db_connection.query_inventory_table())
 
     def getButtonCommand(self, button_text):
         if button_text == "Receive":
             self.receivePopup()
-
         elif button_text == "Update":
             self.updatePopup()
-
         elif button_text == "Delete":
             self.deletePopup()
 
+    # -------------------------
+    # Receive Inventory
+    # -------------------------
     def receivePopup(self):
-
         receivables = self.db_connection.query_purchaseOrder_receivables()
         shipmentIDs = [value[0] for value in receivables]
-        #print(receivables)
-        def onProductNoEntry():
+
+        def onShipmentSelect(*_):
             try:
-                values = [value for value in receivables if value[0] == toplevel.stringVar[0].get()][0]
-                for index, value in enumerate(values):
-                    toplevel.stringVar[index].set(value)
-                    toplevel.entries[index].configure(foreground="black")
+                row = next(v for v in receivables if v[0] == top.stringVar[0].get())
+            except StopIteration:
+                row = ["", "", "", "", "", ""]
+            # Expecting: [Shipment No, Product No, Product Name, Description, Quantity, Vendor]
+            for i, val in enumerate(row[0:6]):
+                top.stringVar[i].set(val)
+                if i > 0:
+                    top.entries[i].configure(state="readonly")
 
-            except:
-                for index, value in enumerate(["FUR-Type-Size-Color-Number", "Archaic Chair", "The chair, a silent sentinel, bore witness to the passage of time.", "Vendor Name", "0"]):
-                    toplevel.stringVar[index+1].set(value)
-                    toplevel.entries[index+1].configure(foreground=self.styleObj.colors.get("secondary"))
+        def submit():
+            try:
+                ok = self.db_connection.update_purchaseOrder_receive(top.stringVar[0].get())
+                if ok:
+                    self._load_table_rows(self.db_connection.query_inventory_table())
+                    popup.infoPopup(self, "Shipment received.")
+                    top.destroy()
+                else:
+                    popup.infoPopup(self, "Failed to receive shipment.")
+            except Exception as e:
+                popup.infoPopup(self, f"Error: {e}")
 
-        def onSubmitButton():
-            if not self.db_connection.receive_inventory(toplevel.stringVar[0].get()):
-                toplevel.errVar[5].set("Submission failed to process")
-            else:
-                self._load_table_rows(self.db_connection.query_inventory_table())
-                toplevel.destroy()
+        top = popup(master=self.masterWindow, title="Receive Inventory", entryFieldQty=6)
+        top.create_title_frame(frame=top.frameList[0], title="Receive Inventory")
 
+        labels = ["Shipment No", "Product No", "Product Name", "Product Description", "Quantity", "Vendor"]
+        for idx, key in enumerate(labels):
+            top.create_label(frame=top.frameList[idx+1], label=key)
+            top.create_errMsg(frame=top.frameList[idx+1], errVar=top.errVar[idx])
 
-        # Creates Popup
-        toplevel = popup(master=self.masterWindow, title="Receive Inventory", entryFieldQty=6)
+        top.create_combobox(frame=top.frameList[1], stringVar=top.stringVar[0], options=shipmentIDs, state="readonly")
+        for i in range(1, 6):
+            top.create_entry(frame=top.frameList[i+1], stringVar=top.stringVar[i], state="readonly")
 
-        # Creates Widgets
-        toplevel.create_title_frame(frame=toplevel.frameList[0], title="Receive Inventory")
-        for index, key in enumerate(["Shipment No", "Product No", "Product Name", "Product Description", "Quantity","Vendor"]):
-            toplevel.create_label(frame=toplevel.frameList[index+1], label=key)
-            toplevel.create_errMsg(frame=toplevel.frameList[index+1], errVar=toplevel.errVar[index])
-        toplevel.create_combobox(frame=toplevel.frameList[1], stringVar=toplevel.stringVar[0], options=shipmentIDs)
-        for index in range(1,6):
-            toplevel.create_entry(frame=toplevel.frameList[index+1], stringVar=toplevel.stringVar[index], state="readonly")
-        toplevel.create_buttonbox(frame=toplevel.frameList[7])
-        toplevel.submitButton.configure(command= lambda: onSubmitButton())
+        top.create_button_frame()
+        top.create_submitButton(command=submit)
+        top.create_cancelButton(command=top.destroy)
 
-        # Preview Text
-        for index, value in enumerate(["shipmentNoEntry", "productNoEntry", "productNameEntry", "productDescriptionEntry", "0Entry", "vendorNameEntry"]):
-            previewText(toplevel.entries[index], key=value)
+        top.stringVar[0].trace("w", onShipmentSelect)
+        previewText(top.entries[1], key="productNoEntry")
+        previewText(top.entries[4], key="quantityEntry")
 
-        toplevel.stringVar[0].trace("w", lambda x, y, z: onProductNoEntry())
+        for index in range(1, 7):
+            top.configure_frame(frame=top.frameList[index])
+        top.configure_toplevel()
 
-        # Validation
-        valObj = validation()
-        valObj.validate(toplevel.entries[0], key="shipmentNo", errStringVar=toplevel.errVar[0])
-
-        # Bindings
-        toplevel.bind_entry_return()
-        toplevel.traceButton()
-
-        # Configure Frames
-        for index in range (1, 7):
-            toplevel.configure_frame(frame=toplevel.frameList[index])
-
-        # Grid Frames
-        toplevel.configure_toplevel()
-
+    # -------------------------
+    # Update Inventory (fixed)
+    # -------------------------
     def updatePopup(self):
-
+        """
+        Move inventory between locations with strict validation.
+        Works for Worker/Supervisor/Admin; comboboxes are read-only.
+        """
+        # Try to preselect from focused row
         try:
             rowDetails = self.tableview.get_row(iid=self.tableview.view.focus()).values
             if rowDetails[-2] == "Output":
                 popup.infoPopup(self, "Row selected is already located at Output.")
                 return
-        except:
+        except Exception:
             rowDetails = []
-        updatables = self.db_connection.query_inventory_updatable()
 
-        def onSubmitButton():
-            parameters = [toplevel.stringVar[0].get().split(' - ')[0], toplevel.stringVar[3].get().split(' (')[0],
-                          toplevel.stringVar[2].get().split(' - ')[0], toplevel.stringVar[5].get().split(' - ')[0], toplevel.stringVar[4].get()]
-            #print(parameters)
-            if not self.db_connection.update_inventory(*parameters):
-                toplevel.errVar[6].set("Submission failed to process")
-            else:
-                self._load_table_rows(self.db_connection.query_inventory_table())
-                toplevel.destroy()
+        updatables = self.db_connection.query_inventory_updatable()  # { "PRODNO - Name": "Description" }
+        product_options = list(updatables.keys())
 
-        def onProductEntry(*args, **kwargs):
-            #print(f"Function called\n{toplevel.stringVar[0].get()}\n{updatables}")
-            if toplevel.stringVar[0].get() in updatables.keys():
-                toplevel.stringVar[1].set(updatables[toplevel.stringVar[0].get()])
-                toplevel.entries[1].configure(foreground="black")
-                toplevel.entries[2].configure(state="enabled")
-            else:
-                toplevel.stringVar[1].set("The chair, a silent sentinel, bore witness to the passage of time.")
-                toplevel.stringVar[2].set("Choose a location")
-                toplevel.entries[2].configure(state="readonly")
-                for i in [1,2]:
-                    toplevel.entries[i].configure(foreground=self.styleObj.colors.get("secondary"))
+        # dynamic lists
+        src_locations = []
+        batches = []
+        dest_locations = ["1 - Input", "2 - Warehouse", "3 - Packing Zone", "4 - Output"]
 
-        def onSrcLocationEntry(*args, **kwargs):
-            options = []
-            for value in toplevel.entries[2].cget("values"):
-                options += [value]
-            if toplevel.stringVar[2].get() in options:
-                toplevel.entries[3].configure(state="enabled")
-                toplevel.entries[5].configure(state="enabled")
-            else:
-                for index, value in enumerate(["BATCH-YYMMDD-[A-Z]", "0", "Choose a location"]):
-                    toplevel.stringVar[index+3].set(value)
-                    toplevel.entries[index+3].configure(foreground=self.styleObj.colors.get("secondary"), state="readonly")
-                toplevel.entries[4].configure(to=0)
+        def onProductChange(*_):
+            # Update description, source locations, batches
+            pname = top.stringVar[0].get()
+            top.stringVar[1].set(updatables.get(pname, ""))
 
-        def onBatchEntry(*args, **kwargs):
-            if toplevel.stringVar[3].get() in toplevel.entries[3].cget("values"):
-                toplevel.entries[4].configure(foreground= "black", state="enabled", to= re.search(r"[(]\d+", string=toplevel.stringVar[3].get()).group()[1:])
-            else:
-                toplevel.stringVar[4].set("0")
-                toplevel.entries[4].configure(foreground=self.styleObj.colors.get("secondary"), state="readonly", to=0)
-
-        def desLocationEntryValidation(event):
-            #print(f"Value:{toplevel.stringVar[4].get()}\nValues:{toplevel.entries}")
-            if toplevel.stringVar[5].get().split(' (')[0] not in toplevel.entries[5].cget("values"):
-                toplevel.errVar[5].set("Invalid Warehouse Location")
-                return False
-            toplevel.errVar[5].set("")
-            return True
-
-        def quantityEntryValidation(event):
-            if float(toplevel.stringVar[4].get()) < 0 or float(toplevel.stringVar[4].get())>float(toplevel.entries[4].cget("to")):
-                toplevel.errVar[4].set("Invalid Quantity Selected")
-                return False
+            # Source locations for selected product
             try:
-                int(toplevel.stringVar[4].get())
-            except:
-                toplevel.errVar[4].set("Only integers allowed")
+                # Expected: ["1 - Input (qty: X)", "2 - Warehouse (qty: Y)", ...]
+                src = self.db_connection.query_inventory_location(pname.split(' - ')[0])
+            except Exception:
+                src = []
+            top.entries[2].configure(values=src, state="readonly")
+            top.stringVar[2].set("")
+
+            # Batches for this product; fallback to all batches if specific query missing
+            try:
+                batches_list = self.db_connection.query_inventory_productBatch(pname.split(' - ')[0])
+            except Exception:
+                try:
+                    batches_list = self.db_connection.query_productBatchNo()
+                except Exception:
+                    batches_list = []
+            top.entries[3].configure(values=batches_list, state="readonly")
+            top.stringVar[3].set("")
+
+        def onSrcChange(*_):
+            top.entries[5].configure(values=dest_locations, state="readonly")
+
+        def quantityValidation(event):
+            txt = top.stringVar[4].get().strip()
+            if not txt.isdigit() or int(txt) <= 0:
+                top.errVar[4].set("Enter a positive number")
                 return False
-            toplevel.errVar[4].set("")
+            top.errVar[4].set("")
             return True
 
-        def srcLocationPostCommand():
-            if toplevel.stringVar[0].get() in updatables.keys():
-                toplevel.entries[2].configure(values=self.db_connection.query_inventory_location(toplevel.stringVar[0].get().split(' - ')[0]))
-            else:
-                toplevel.entries[2].configure(values=[])
-            #print(f"Product No: {toplevel.stringVar[0].get().split(' - ')[0]}\nOptions: {self.db_connection.query_inventory_location(toplevel.stringVar[0].get().split(' - ')[0])}")
+        def destValidation(event):
+            val = top.stringVar[5].get()
+            options = list(top.entries[5].cget("values"))
+            if val not in options:
+                top.errVar[5].set("Invalid Warehouse Location")
+                return False
+            # forbid destination == source
+            src = top.stringVar[2].get()
+            if src and val.split(' - ')[0] == src.split(' - ')[0]:
+                top.errVar[5].set("Source and destination cannot be the same")
+                return False
+            top.errVar[5].set("")
+            return True
 
-        def batchPostCommand():
-            if toplevel.stringVar[2].get() in toplevel.entries[2].cget("values"):
-                toplevel.entries[3].configure(values=self.db_connection.query_inventory_productBatch(toplevel.stringVar[0].get().split(' - ')[0], toplevel.stringVar[2].get().split(' - ')[0]))
-            else:
-                toplevel.entries[3].configure(values=[])
+        def submit():
+            # Validate again
+            if not quantityValidation(None) or not destValidation(None):
+                popup.infoPopup(self, "Please fix validation errors.")
+                return
+            try:
+                product_no = top.stringVar[0].get().split(' - ')[0]
+                batch_no = top.stringVar[3].get().split(' - ')[0] if ' - ' in top.stringVar[3].get() else top.stringVar[3].get()
+                src_id = int(top.stringVar[2].get().split(' - ')[0])
+                des_id = int(top.stringVar[5].get().split(' - ')[0])
+                qty = int(top.stringVar[4].get())
+            except Exception:
+                popup.infoPopup(self, "Missing or invalid fields.")
+                return
+            try:
+                ok = self.db_connection.update_inventory(product_no, batch_no, src_id, des_id, qty)
+                if ok:
+                    self._load_table_rows(self.db_connection.query_inventory_table())
+                    popup.infoPopup(self, "Inventory updated.")
+                    top.destroy()
+                else:
+                    popup.infoPopup(self, "Update failed.")
+            except Exception as e:
+                popup.infoPopup(self, f"Error: {e}")
 
-        def desLocationPostCommand():
-            options = ["1 - Input", "2 - Warehouse", "3 - Packing Zone", "4 - Output"]
-            if toplevel.stringVar[2].get() in toplevel.entries[2].cget("values"):
-                for index, value in enumerate(options):
-                    #print(f"{toplevel.stringVar[2].get()}, {toplevel.stringVar[2].get().split(' (')}")
-                    if value == toplevel.stringVar[2].get().split(' (')[0]:
-                        options = options[index + 1:]
-                        break
-            else:
-                options=[]
-            toplevel.entries[5].configure(values=options)
+        # --- Build popup ---
+        top = popup(master=self.masterWindow, title="Update Inventory", entryFieldQty=6)
+        top.create_title_frame(frame=top.frameList[0], title="Update Inventory")
 
+        labels = ["Product No.", "Product Description", "Source Location",
+                  "Product Batch No.", "Quantity", "Destination Location"]
+        for idx, key in enumerate(labels):
+            top.create_label(frame=top.frameList[idx+1], label=key)
+            top.create_errMsg(frame=top.frameList[idx+1], errVar=top.errVar[idx])
 
-        # Creates Popup
-        toplevel = popup(master=self.masterWindow, title="Update Inventory", entryFieldQty=6)
+        top.create_combobox(frame=top.frameList[1], stringVar=top.stringVar[0],
+                            options=product_options, state="readonly")
+        top.create_entry(frame=top.frameList[2], stringVar=top.stringVar[1], state="readonly")
+        top.create_combobox(frame=top.frameList[3], stringVar=top.stringVar[2], options=src_locations, state="readonly")
+        top.create_combobox(frame=top.frameList[4], stringVar=top.stringVar[3], options=batches, state="readonly")
+        top.create_entry(frame=top.frameList[5], stringVar=top.stringVar[4])
+        top.create_combobox(frame=top.frameList[6], stringVar=top.stringVar[5],
+                            options=dest_locations, state="readonly")
 
-        # Creates Widgets
-        toplevel.create_title_frame(frame=toplevel.frameList[0], title="Update Inventory")
-        for index, key in enumerate(["Product No.", "Product Description", "Source Location", "Product Batch No.", "Quantity", "Destination Location"]):
-            toplevel.create_label(frame=toplevel.frameList[index + 1], label=key)
-            toplevel.create_errMsg(frame=toplevel.frameList[index + 1], errVar=toplevel.errVar[index])
-
-        toplevel.create_combobox(frame=toplevel.frameList[1], stringVar=toplevel.stringVar[0], options=[key for key in updatables.keys()])
-        toplevel.create_entry(frame=toplevel.frameList[2], stringVar=toplevel.stringVar[1], state="readonly")
-        toplevel.create_combobox(frame=toplevel.frameList[3], stringVar=toplevel.stringVar[2], state="readonly", postcommand=lambda: srcLocationPostCommand())
-        toplevel.create_combobox(frame=toplevel.frameList[4], stringVar=toplevel.stringVar[3], state="readonly", postcommand=lambda: batchPostCommand())
-        toplevel.create_spinbox(frame=toplevel.frameList[5], stringVar=toplevel.stringVar[4], state="readonly")
-        toplevel.create_combobox(frame=toplevel.frameList[6], stringVar=toplevel.stringVar[5], state="readonly", postcommand=lambda: desLocationPostCommand())
-        toplevel.create_buttonbox(frame=toplevel.frameList[7])
-        toplevel.submitButton.configure(command = lambda: onSubmitButton())
-        toplevel.entries[4].configure(to=0)
-
-        # Preview Text
-        previewText(toplevel.entries[0], key="inventoryProductEntry")
-        previewText(toplevel.entries[1], key="productDescriptionEntry")
-        previewText(toplevel.entries[2], key="locationEntry")
-        previewText(toplevel.entries[3], key="productBatchEntry")
-        previewText(toplevel.entries[4], key="0Entry")
-        previewText(toplevel.entries[5], key="locationEntry")
-
-        toplevel.stringVar[0].trace("w", onProductEntry)
-        toplevel.stringVar[2].trace("w", onSrcLocationEntry)
-        toplevel.stringVar[3].trace("w", onBatchEntry)
-
-        if rowDetails != []:
-            #print(rowDetails)
-            toplevel.stringVar[0].set(f"{rowDetails[1]} - {rowDetails[2]}")
-            srcLocationPostCommand()
-            for option in toplevel.entries[2].cget("values"):
-                if rowDetails[5] == option.split(' - ')[1].split(' (')[0]:
-                    toplevel.stringVar[2].set(option)
-            batchPostCommand()
-            for option in toplevel.entries[3].cget("values"):
-                if rowDetails[6] == option.split(' (')[0]:
-                    toplevel.stringVar[3].set(option)
-            for i in [0,2,3]:
-                toplevel.entries[i].configure(foreground="black")
+        previewText(top.entries[1], key="productNoEntry")
+        previewText(top.entries[5], key="quantityEntry")
 
         # Validation
-        add_validation(toplevel.entries[4], validator(quantityEntryValidation), when="focus")
-        add_validation(toplevel.entries[5], validator(desLocationEntryValidation), when="focus")
+        add_validation(top.entries[5], validator(quantityValidation), when="focus")
+        add_validation(top.entries[6], validator(destValidation), when="focus")
 
         # Bindings
-        toplevel.bind_entry_return()
-        toplevel.traceButton()
+        top.stringVar[0].trace("w", onProductChange)
+        top.stringVar[2].trace("w", onSrcChange)
 
-        # Configure Frames
+        # Pre-fill with selected row if available
+        if rowDetails:
+            try:
+                # rowDetails: ["Inventory ID","Product No","Name","Description","Quantity","Location","Batch Number ID"]
+                p = f"{rowDetails[1]} - {rowDetails[2]}"
+                if p in product_options:
+                    top.stringVar[0].set(p)
+                else:
+                    top.stringVar[0].set("")
+                # options for src/batch will populate via onProductChange
+            except Exception:
+                pass
+
+        top.create_button_frame()
+        top.create_submitButton(command=submit)
+        top.create_cancelButton(command=top.destroy)
+
         for index in range(1, 7):
-            toplevel.configure_frame(frame=toplevel.frameList[index])
+            top.configure_frame(frame=top.frameList[index])
+        top.configure_toplevel()
 
-        # Grid Frames
-        toplevel.configure_toplevel()
-
+    # -------------------------
+    # Delete Inventory
+    # -------------------------
     def deletePopup(self):
-        rowDetails = popup.getTableRows(self.tableview)
-        if rowDetails == []:
+        try:
+            row = self.tableview.get_row(iid=self.tableview.view.focus()).values
+        except Exception:
+            popup.infoPopup(self, "Please select an inventory row to delete.")
             return
-        if popup.deleteDialog(self) == "OK":
-            #print(rowDetails)
-            if self.db_connection.delete_inventory(rowDetails[0]):
-                self._load_table_rows(self.db_connection.query_inventory_table())
-            else:
-                popup.deleteFail(self)
+
+        inv_id = row[0]
+
+        def submit():
+            try:
+                ok = self.db_connection.delete_inventory(int(inv_id))
+                if ok:
+                    self._load_table_rows(self.db_connection.query_inventory_table())
+                    popup.infoPopup(self, "Inventory deleted.")
+                    top.destroy()
+                else:
+                    popup.infoPopup(self, "Delete failed.")
+            except Exception as e:
+                popup.infoPopup(self, f"Error: {e}")
+
+        top = popup(master=self.masterWindow, title="Delete Inventory", entryFieldQty=1)
+        top.create_title_frame(frame=top.frameList[0], title="Delete Inventory")
+        top.create_label(frame=top.frameList[1], label=f"Delete Inventory ID: {inv_id}?")
+        top.create_button_frame()
+        top.create_submitButton(text="Delete", bootstyle="danger", command=submit)
+        top.create_cancelButton(command=top.destroy)
+        top.configure_frame(frame=top.frameList[1])
+        top.configure_toplevel()
 
 
-
-# Test Case
-if __name__ == "__main__":
+if __name__ == '__main__':
+    # Dev harness: show just the inventory frame
     from navigationFrame import navigationFrame
-
-    # Create Main Window, and center it
     window = ttk.Window(title="Keai IWMS", themename="litera", size=(1280, 720))
     ttk.window.Window.place_window_center(window)
     window.rowconfigure(0, weight=1)
     window.columnconfigure(0, weight=1, minsize=200)
     window.columnconfigure(1, weight=20)
 
-    # Creates Frames
     rFrame = inventoryFrame(window, "Worker", employeeID=3)
     lFrame = navigationFrame(window, 3, rFrame)
-    #rFrame.createPopup()
-
-    # Starts Event Main Loop
     window.mainloop()

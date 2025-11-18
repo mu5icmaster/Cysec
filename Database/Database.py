@@ -26,22 +26,51 @@ def singleton(cls):
 
 @singleton
 class DatabaseConnection:
+    # ---- RBAC helpers -------------------------------------------------
+    def _role_of(self, employee_id: int) -> str:
+        """Return the role name for a worker id, or '' if not found."""
+        try:
+            self.cursor.execute("""
+                SELECT r.RoleName
+                FROM Workers w
+                JOIN Roles r ON w.RoleID = r.RoleID
+                WHERE w.WorkerID = ?
+            """, (int(employee_id),))
+            row = self.cursor.fetchone()
+            return row[0] if row else ""
+        except Exception:
+            return ""
+
+    def _require_role(self, employee_id: int | None, allowed: tuple[str, ...]):
+        """Raise PermissionError if employee_id is not in an allowed role.
+        If employee_id is None, allow (back-compat)."""
+        if employee_id is None:
+            return
+        role = self._role_of(employee_id)
+        if role not in allowed:
+            raise PermissionError(f"Role '{role}' not permitted for this action.")
+
+    def _log_user_activity(self, employee_id: int | None, message: str):
+        """Log to your existing 'User Activities' stream if available."""
+        try:
+            if hasattr(self, "logger"):
+                self.logger.info(message, type="report", key="User Activities")
+        except Exception:
+            pass
+    # -------------------------------------------------------------------
+
 
     def __init__(self):
         self.config = Configuration()
         db_filepath = self.config.getDatabaseFile()
-        #print(f"DatabaseConnection Constructor-> Database File Path{db_filepath}")
+        #print(f"DatabaseConnection Constructor-> Database File Path\n{db_filepath}")
 
         if not os.path.exists(db_filepath):
             self.connection = sqlite3.connect(db_filepath)
             self.cursor = self.connection.cursor()
             self._create_tables()
             self.connection.commit()
-            # Restrict DB file permissions to owner-only (rw-------)
-            try:
-                os.chmod(db_filepath, 0o600)
-            except Exception:
-                pass
+
         else:
             self.connection = sqlite3.connect(db_filepath)
             self.cursor = self.connection.cursor()
@@ -57,7 +86,6 @@ class DatabaseConnection:
                    format="""{time:YYYY-MM-DD HH:mm:ss} | {extra[key]} Report | Employee ID: {extra[id]} | {message} | {level}""")
         self.logger: logger = logger.bind(id='1', placeholder="", type="notification")
         self.employeeID = 1
-
 
     def __enter__(self):
         return self
@@ -226,25 +254,24 @@ class DatabaseConnection:
                             (employeeID,))
         return self.cursor.fetchone()
 
-    def query_employee_login(self, email: str) -> int | None:
-        """Returns employee ID or None if not found"""
-        self.cursor.execute("""
-            SELECT w.WorkerID
-            FROM Workers w
-            INNER JOIN Accounts a ON w.WorkerID = a.WorkerID
-            WHERE a.Email = ?
-        """, (email,))
-        row = self.cursor.fetchone()
-        return row[0] if row else None
+    def query_employee_login(self, email: str) -> int:
+        """Returns employee ID"""
+        self.cursor.execute("""SELECT w.WorkerID FROM Workers w
+        INNER JOIN Accounts a ON w.WorkerID = a.WorkerID WHERE a.Email = ?""", (email,))
+
+        return self.cursor.fetchone()[0]
 
     def query_worker(self) -> list[str]:
-        """Returns: Worker Names"""
-        self.cursor.execute("""SELECT WorkerID || ' - ' || Name FROM Workers WHERE RoleID = 3""")
+        """Returns: ['WorkerID - Name', ...] (all roles)"""
         try:
-            results = [value for value in self.cursor.fetchall()[0]]
-        except IndexError:
-            results = []
-        return results
+            self.cursor.execute("""
+                SELECT w.WorkerID || ' - ' || w.Name
+                FROM Workers w
+                ORDER BY w.Name
+            """)
+            return [row[0] for row in self.cursor.fetchall()]
+        except Exception:
+            return []
 
     def query_notification(self, role: str) -> list:
         try:
@@ -254,13 +281,10 @@ class DatabaseConnection:
 
             for index in range(3, roleID - 1, -1):
                 self.cursor.execute("""SELECT NotificationID, TimeStamp, NotificationDesc FROM Notification 
-                                        WHERE RoleID = ?""", (index,))
+                                    WHERE RoleID = ?""", (index,))
                 notifications += self.cursor.fetchall()
 
-            try:
-                notifications = sorted(notifications, key=lambda timestamp: notifications[1])
-            except IndexError:
-                notifications = []
+            notifications = sorted(notifications, key=lambda row: row[1], reverse=True)
             return notifications
 
         except sqlite3.Error as err:
@@ -307,7 +331,7 @@ class DatabaseConnection:
             print(f"Error: {err}")
             return []
 
-    def query_productBatchNo(self) -> list:
+    def query_all_product_nos(self) -> list:
         """Returns a list of all product batch no."""
         try:
             self.cursor.execute("SELECT ProductNo FROM Products")
@@ -316,7 +340,6 @@ class DatabaseConnection:
         except sqlite3.Error as err:
             print(f"Error: {err}")
             return []
-
     def query_productID(self, productName: str) -> str:
         try:
             self.cursor.execute("SELECT ProductID FROM Products WHERE ProductName = ?", (productName,))
@@ -621,103 +644,126 @@ class DatabaseConnection:
             print(f"Error: {err}")
             return 0
 
-    def receive_inventory(self, shipmentNo: str) -> bool:
-        try:
-            self.cursor.execute("SELECT ProductID, Quantity, PBatchID FROM Shipments WHERE ShipmentNo = ?",
-                                (shipmentNo,))
-            productID, quantity, batchID = self.cursor.fetchone()
-            self.cursor.execute("""
-            INSERT INTO Inventory (ProductID, StockQuantity, LocationID, PBatchID)
-            VALUES (?, ?, ?, ?)
-            """, (productID, quantity, 1, batchID,))
-            self.cursor.execute("UPDATE Shipments SET Status = ? WHERE ShipmentNo = ?", ("Received", shipmentNo,))
-            self.connection.commit()
+    def receive_inventory(self, shipmentNo: str, employee_id: int | None = None) -> bool:
+                try:
+                    self._require_role(employee_id, ("Worker", "Supervisor", "Administrator"))
 
-            self.cursor.execute("SELECT ProductName FROM Products WHERE ProductID = ?", (productID,))
-            name = self.cursor.fetchone()[0]
-            self.cursor.execute("SELECT PBatchNumber FROM Product_Batch WHERE PBatchID = ?", (batchID,))
-            batchNumber = self.cursor.fetchone()[0]
-            self.logger.info(f"{name} | {batchNumber} | Vendor | Input | {quantity}", type="report",
-                             key="Product Movement")
-            self.logger.info(f"Receive Inventory | Shipment No: {shipmentNo}", type="report", key="User Activities")
-            return True
+                    self.cursor.execute("SELECT ProductID, Quantity, PBatchID FROM Shipments WHERE ShipmentNo = ?",
+                                        (shipmentNo,))
+                    productID, quantity, batchID = self.cursor.fetchone()
 
-        except sqlite3.Error as err:
-            print(f"Error: {err}")
-            return False
+                    self.cursor.execute("""
+                        INSERT INTO Inventory (ProductID, StockQuantity, LocationID, PBatchID)
+                        VALUES (?, ?, ?, ?)
+                    """, (productID, quantity, 1, batchID,))
+                    self.cursor.execute("UPDATE Shipments SET Status = ? WHERE ShipmentNo = ?", ("Received", shipmentNo,))
+                    self.connection.commit()
+
+                    self.cursor.execute("SELECT ProductName FROM Products WHERE ProductID = ?", (productID,))
+                    name = self.cursor.fetchone()[0]
+                    self.cursor.execute("SELECT PBatchNumber FROM Product_Batch WHERE PBatchID = ?", (batchID,))
+                    batchNumber = self.cursor.fetchone()[0]
+
+                    if hasattr(self, 'logger'):
+                        self.logger.info(f"{name} | {batchNumber} | Vendor | Input | {quantity}",
+                                        type="report", key="Product Movement Report")
+                    self._log_user_activity(employee_id, f"Receive Inventory | Shipment No: {shipmentNo}")
+                    return True
+
+                except PermissionError as e:
+                    print(e)
+                    return False
+                except Exception as err:
+                    print(f"Error: {err}")
+                    return False
 
     def update_inventory(self, productNo: str, batchNumber: str, srcLocationID: int, desLocationID: int,
-                         quantity: int) -> bool:
+                         quantity: int, employee_id: int | None = None) -> bool:
         try:
+            self._require_role(employee_id, ("Worker", "Supervisor", "Administrator"))
+
             self.cursor.execute("SELECT PBatchID FROM Product_Batch WHERE PBatchNumber = ?", (batchNumber,))
             batchID = self.cursor.fetchone()[0]
-            #print(batchID)
+
             self.cursor.execute("SELECT ProductID FROM Products WHERE ProductNo = ?", (productNo,))
             productID = self.cursor.fetchone()[0]
-            #print(productID)
+
             srcQuantity = self.cursor.execute("""
                 SELECT StockQuantity FROM Inventory WHERE ProductID = ? AND PBatchID = ? AND LocationID = ?
-                """, (productID, batchID, srcLocationID,))
+            """, (productID, batchID, srcLocationID,))
             srcQuantity = int(srcQuantity.fetchone()[0]) - int(quantity)
-            #print(srcQuantity)
 
             self.cursor.execute("""
                 UPDATE Inventory 
                 SET StockQuantity = ?
                 WHERE ProductID = ? AND PBatchID = ? AND LocationID = ?
-                """, (srcQuantity, productID, batchID, srcLocationID,))
-            #print(f"ProductID: {productID}\nPBatchID: {batchID}\ndesLocationID: {desLocationID}")
+            """, (srcQuantity, productID, batchID, srcLocationID,))
+
             desQuantity = self.cursor.execute("""
-                                        SELECT StockQuantity FROM Inventory WHERE ProductID = ? AND PBatchID = ? AND LocationID = ?
-                                        """, (productID, batchID, desLocationID,))
+                SELECT StockQuantity FROM Inventory WHERE ProductID = ? AND PBatchID = ? AND LocationID = ?
+            """, (productID, batchID, desLocationID,))
+
             try:
                 desQuantity = int(desQuantity.fetchone()[0]) + int(quantity)
-                #print("1: " + str(desQuantity))
                 self.cursor.execute("""
                     UPDATE Inventory 
                     SET StockQuantity = ?
                     WHERE ProductID = ? AND PBatchID = ? AND LocationID = ?
-                    """, (desQuantity, productID, batchID, desLocationID,))
+                """, (desQuantity, productID, batchID, desLocationID,))
             except Exception:
-                #print(f"Error: {err}")
-                desQuantity = quantity
-                #print("2: " + str(desQuantity))
                 self.cursor.execute("""
                     INSERT INTO Inventory (ProductID, StockQuantity, LocationID, PBatchID)
                     VALUES (?, ?, ?, ?)
-                    """, (productID, quantity, desLocationID, batchID,))
+                """, (productID, quantity, desLocationID, batchID,))
 
             self.connection.commit()
+
             self.cursor.execute("""SELECT ProductName FROM Products WHERE ProductNo = ?""", (productNo,))
             name = self.cursor.fetchone()[0]
             self.cursor.execute("""SELECT LocationName FROM Locations WHERE LocationID = ? OR LocationID = ?""",
                                 (srcLocationID, desLocationID,))
             locations = self.cursor.fetchall()
-            self.logger.info(f"{name} | {batchNumber} | {locations[0][0]} | {locations[1][0]} | {quantity}",
-                             type="report", key="Product Movement")
-            self.logger.info(
-                f"Update Inventory | Moved {quantity} units of {name} from {locations[0][0]} to {locations[1][0]}",
-                type="report", key="User Activities")
+
+            if hasattr(self, 'logger'):
+                self.logger.info(f"{name} | {batchNumber} | {locations[0][0]} | {locations[1][0]} | {quantity}",
+                                 type="report", key="Product Movement Report")
+            self._log_user_activity(
+                employee_id,
+                f"Update Inventory | Moved {quantity} units of {name} from {locations[0][0]} to {locations[1][0]}"
+            )
             return True
 
+        except PermissionError as e:
+            print(e)
+            return False
         except Exception as err:
             print(f"Error: {err}")
             return False
 
-    def delete_inventory(self, inventoryID: int) -> bool:
+    def delete_inventory(self, inventoryID: int, employee_id: int | None = None) -> bool:
         try:
-            self.cursor.execute("""SELECT p.ProductName, l.LocationName, COALESCE(i.StockQuantity, 0), b.PBatchNumber
-            FROM Inventory i INNER JOIN Products p ON i.ProductID = p.ProductID
-            INNER JOIN Locations l ON i.LocationID = l.LocationID
-            INNER JOIN Product_Batch b ON i.PBatchID = b.PBatchID
-            WHERE i.InventoryID = ?""", (inventoryID,))
-            old_values = self.cursor.fetchall()
-            self.cursor.execute("DELETE FROM Inventory WHERE InventoryID = ?",
-                                (inventoryID,))
-            self.connection.commit()
-            self.logger.info(f"""Deleted Inventory | Deleted {old_values[2]} {old_values[0]} at {old_values[1]} from 
-            database ({old_values[3]})""", type="report", key="User Activities")
+            self._require_role(employee_id, ("Supervisor", "Administrator"))
 
+            self.cursor.execute("""SELECT p.ProductName, l.LocationName, COALESCE(i.StockQuantity, 0), b.PBatchNumber
+                FROM Inventory i INNER JOIN Products p ON i.ProductID = p.ProductID
+                INNER JOIN Locations l ON i.LocationID = l.LocationID
+                INNER JOIN Product_Batch b ON i.PBatchID = b.PBatchID
+                WHERE i.InventoryID = ?""", (inventoryID,))
+            old_values = self.cursor.fetchone()
+
+            self.cursor.execute("DELETE FROM Inventory WHERE InventoryID = ?", (inventoryID,))
+            self.connection.commit()
+
+            if old_values:
+                self._log_user_activity(
+                    employee_id,
+                    f"Deleted Inventory | {old_values[2]} of {old_values[0]} at {old_values[1]} (Batch {old_values[3]})"
+                )
+            return True
+
+        except PermissionError as e:
+            print(e)
+            return False
         except sqlite3.Error as err:
             print(f"Error: {err}")
             return False
@@ -729,7 +775,6 @@ class DatabaseConnection:
 
     def query_preferred_vendor(self, productID) -> str:
         try:
-            #print(productID)
             self.cursor.execute("""SELECT s.SupplierID, s.Name FROM Suppliers s INNER JOIN Products p 
                             ON s.SupplierID = p.PreferredSupplierID WHERE p.ProductID = ?
                             """, (productID,))
@@ -814,13 +859,13 @@ class DatabaseConnection:
         try:
             if re.match(r'\d+', str(worker_id)) is not None:
                 self.cursor.execute("""
-                     INSERT INTO Tasks (TaskDesc, WorkerID, ETA, TaskStatus, TBatchID)
+                    INSERT INTO Tasks (TaskDesc, WorkerID, ETA, TaskStatus, TBatchID)
                     VALUES (?, ?, ?, 'Not Started', ?)
-                 """, (description, worker_id, eta, batch_id))
+                """, (description, worker_id, eta, batch_id))
             else:
                 self.cursor.execute("""
-                INSERT INTO Tasks (TaskDesc, ETA, TaskStatus, TBatchID)
-                VALUES (?, ?, 'Not Started', ?)""", (description, eta, batch_id))
+                    INSERT INTO Tasks (TaskDesc, ETA, TaskStatus, TBatchID)
+                    VALUES (?, ?, 'Not Started', ?)""", (description, eta, batch_id))
             self.connection.commit()
             self.logger.info(f"Create Task | {description}", type="report", key="User Activities")
             return True
@@ -830,8 +875,7 @@ class DatabaseConnection:
             return False
 
     def update_task(self, task_id: int, description: str, worker_id: int, progress: str, eta: str,
-                    batch_no: str = None) -> (
-            bool):
+                    batch_no: str = None) -> bool:
         try:
             self.cursor.execute("""SELECT TBatchID FROM Task_Batch WHERE TBatchNo = ?""", (batch_no,))
             try:
@@ -855,10 +899,10 @@ class DatabaseConnection:
                 new_worker_name = self.cursor.fetchone()[0]
 
                 self.cursor.execute("""
-                                    UPDATE Tasks
-                                    SET TaskDesc = ?, WorkerID = ?, TaskStatus = ?, ETA = ?, TBatchID = NULL
-                                    WHERE TaskID = ?
-                                """, (description, worker_id, progress, eta, task_id,))
+                    UPDATE Tasks
+                    SET TaskDesc = ?, WorkerID = ?, TaskStatus = ?, ETA = ?, TBatchID = NULL
+                    WHERE TaskID = ?
+                """, (description, worker_id, progress, eta, task_id,))
 
                 for i, e in enumerate(
                         (("Task Description", description), ("Worker", new_worker_name), ("Task Status", progress),
@@ -901,9 +945,9 @@ class DatabaseConnection:
             batchID = self.cursor.fetchone()[0]
             for i in taskIDs:
                 self.cursor.execute("""
-                UPDATE Tasks
-                SET TBatchID = ?
-                WHERE TaskID = ?
+                    UPDATE Tasks
+                    SET TBatchID = ?
+                    WHERE TaskID = ?
                 """, (batchID, i,))
             self.connection.commit()
             return True
@@ -970,15 +1014,13 @@ class DatabaseConnection:
         """Returns: [ShipmentNo, ProductNo, ProductName, ProductDesc, Quantity, VendorId - VendorName]"""
         try:
             self.cursor.execute("""SELECT s.ShipmentNo, p.ProductNo, p.ProductName, p.Description, s.Quantity, v.SupplierID, v.Name
-            FROM Shipments s LEFT JOIN Products p ON s.ProductID = p.ProductID
-            LEFT JOIN Suppliers v ON s.SupplierID = v.SupplierID
-            WHERE s.Status != ?""", ("Received",))
+                FROM Shipments s LEFT JOIN Products p ON s.ProductID = p.ProductID
+                LEFT JOIN Suppliers v ON s.SupplierID = v.SupplierID
+                WHERE s.Status != ?""", ("Received",))
             returnList = [list(value) for value in self.cursor.fetchall()]
-            #print(returnList)
             for element in returnList:
                 element[-2] = f"{element[-2]} - {element[-1]}"
                 element.pop()
-            #print(returnList)
             return returnList
 
         except sqlite3.Error as err:
@@ -989,11 +1031,11 @@ class DatabaseConnection:
         """Returns: [Purchase No: str, Product Name: str, Quantity: int, Batch Number: str, Vendor Name: str, Date: str, Status: str]"""
         try:
             self.cursor.execute("""
-            SELECT s.ShipmentNo, p.ProductName, s.Quantity, b.PBatchNumber, v.Name, s.ShipmentDate, s.Status
-            FROM Shipments s 
-            LEFT JOIN Products p ON s.ProductID = p.ProductID
-            LEFT JOIN Suppliers v ON s.SupplierID = v.SupplierID
-            LEFT JOIN Product_Batch b ON s.PBatchID = b.PBatchID
+                SELECT s.ShipmentNo, p.ProductName, s.Quantity, b.PBatchNumber, v.Name, s.ShipmentDate, s.Status
+                FROM Shipments s 
+                LEFT JOIN Products p ON s.ProductID = p.ProductID
+                LEFT JOIN Suppliers v ON s.SupplierID = v.SupplierID
+                LEFT JOIN Product_Batch b ON s.PBatchID = b.PBatchID
             """)
             return self.cursor.fetchall()
 
@@ -1008,7 +1050,7 @@ class DatabaseConnection:
                 shipmentID = self._generateID(self.cursor.fetchone()[0])
             except:
                 shipmentID = self._generateID("SHIP-000000-A")
-            if re.match(r"^BATCH-[\d]{6}-[A-Z]+$", batchNo):
+            if re.match("^BATCH-[\d]{6}-[A-Z]+$", batchNo):
                 self.cursor.execute("SELECT PBatchNumber FROM Product_Batch")
                 if batchNo not in [value[0] for value in self.cursor.fetchall()]:
                     self.cursor.execute("INSERT INTO Product_Batch (PBatchNumber) VALUES (?)", (batchNo,))
@@ -1016,9 +1058,8 @@ class DatabaseConnection:
                 else:
                     self.cursor.execute("SELECT PBatchID FROM Product_Batch WHERE PBatchNumber = ?", (batchNo,))
                     batchID = self.cursor.fetchone()[0]
-                    #print(batchID)
                 self.cursor.execute("""INSERT INTO Shipments (ShipmentNo, ProductID, Quantity, SupplierID, ShipmentDate, PBatchID)
-                            VALUES (?, ?, ?, ?, ?, ?)""",
+                                VALUES (?, ?, ?, ?, ?, ?)""",
                                     (shipmentID, productID, quantity, vendorID, date.today(), batchID,))
                 self.connection.commit()
 
@@ -1035,14 +1076,14 @@ class DatabaseConnection:
     def update_purchaseOrder(self, shipmentNo: str, productID: int, quantity: int, vendorID: int, Status: str) -> bool:
         try:
             self.cursor.execute("""SELECT p.ProductName, s.Quantity, v.Name, s.Status
-            FROM Shipments s LEFT JOIN Products p ON s.ProductID = p.ProductID
-            LEFT JOIN Suppliers v ON s.SupplierID = v.SupplierID
-            WHERE s.ShipmentNo = ?""", (shipmentNo,))
+                FROM Shipments s LEFT JOIN Products p ON s.ProductID = p.ProductID
+                LEFT JOIN Suppliers v ON s.SupplierID = v.SupplierID
+                WHERE s.ShipmentNo = ?""", (shipmentNo,))
             old_values = self.cursor.fetchone()
 
             self.cursor.execute("""
-            UPDATE Shipments SET ProductID = ?, Quantity = ?, SupplierID = ?, Status = ?
-            WHERE ShipmentNo = ?
+                UPDATE Shipments SET ProductID = ?, Quantity = ?, SupplierID = ?, Status = ?
+                WHERE ShipmentNo = ?
             """, (productID, quantity, vendorID, Status, shipmentNo))
             self.connection.commit()
 
@@ -1076,8 +1117,8 @@ class DatabaseConnection:
         """Returns quantity of stock sold"""
         try:
             self.cursor.execute("""SELECT COALESCE(SUM(i.QuantitySold), 0)
-            FROM Sales_Inventory i INNER JOIN Sales s ON i.SaleID=s.SaleID
-            WHERE Status = 'Delivered'""")
+                FROM Sales_Inventory i INNER JOIN Sales s ON i.SaleID=s.SaleID
+                WHERE Status = 'Delivered'""")
             return self.cursor.fetchone()[0]
 
         except sqlite3.Error as err:
@@ -1128,11 +1169,11 @@ class DatabaseConnection:
         """Returns: [SaleNo, Date, Total Price, Status]"""
         try:
             self.cursor.execute(""" 
-            SELECT s.SaleNo, s.Date, SUM(i.QuantitySold * p.Price), s.Status
-            FROM Sales s INNER JOIN Sales_Inventory i ON s.SaleID = i.SaleID 
-            INNER JOIN Products p ON i.ProductID = p.ProductID
-            GROUP BY s.SaleNo
-             """)
+                SELECT s.SaleNo, s.Date, SUM(i.QuantitySold * p.Price), s.Status
+                FROM Sales s INNER JOIN Sales_Inventory i ON s.SaleID = i.SaleID 
+                INNER JOIN Products p ON i.ProductID = p.ProductID
+                GROUP BY s.SaleNo
+            """)
             return self.cursor.fetchall()
 
         except sqlite3.Error as err:
@@ -1143,12 +1184,12 @@ class DatabaseConnection:
         """Returns nested list: ["SaleNo", "ProductSold", "Quantity", "BatchNo", "Date", "Status"]"""
         try:
             self.cursor.execute("""
-            SELECT s.SaleNo, p.ProductNo || ' ' || p.ProductName, i.QuantitySold || ' (' || COALESCE(SUM(b.QuantityTaken), 0) || ' Assigned)', COALESCE(GROUP_CONCAT(pb.PBatchNumber), 'Not Assigned'), s.Date, s.Status
-            FROM Sales s INNER JOIN Sales_Inventory i ON s.SaleID = i.SaleID
-            LEFT JOIN Products p ON i.ProductID = p.ProductID
-            LEFT JOIN Sales_Inventory_Batch b ON i.SalesInventoryID = b.SalesInventoryID
-            LEFT JOIN Product_Batch pb ON b.PBatchID = pb.PBatchID
-            GROUP BY i.SalesInventoryID
+                SELECT s.SaleNo, p.ProductNo || ' ' || p.ProductName, i.QuantitySold || ' (' || COALESCE(SUM(b.QuantityTaken), 0) || ' Assigned)', COALESCE(GROUP_CONCAT(pb.PBatchNumber), 'Not Assigned'), s.Date, s.Status
+                FROM Sales s INNER JOIN Sales_Inventory i ON s.SaleID = i.SaleID
+                LEFT JOIN Products p ON i.ProductID = p.ProductID
+                LEFT JOIN Sales_Inventory_Batch b ON i.SalesInventoryID = b.SalesInventoryID
+                LEFT JOIN Product_Batch pb ON b.PBatchID = pb.PBatchID
+                GROUP BY i.SalesInventoryID
             """)
             return self.cursor.fetchall()
 
@@ -1170,9 +1211,7 @@ class DatabaseConnection:
             """, (saleNo,))
             result = [list(value) for value in self.cursor.fetchall()]
             for value in result:
-                #print(f"{value[-1]:,}")
                 value[-1] = f"{round(value[-1], 2):,}"
-            #print(result)
             return result
 
         except sqlite3.Error as err:
@@ -1180,19 +1219,19 @@ class DatabaseConnection:
             return []
 
     def query_salesorder_product(self, saleNo: str) -> list[str]:
-        """Returns products to be sold and quantity to be delivered for a Sale No.
-        Concatenates:
+        """
+        Returns products to be sold and quantity to be delivered for a Sale No.
         [Product No] - [Product Name] ([Quantity Sold in SaleNo. - QuantityTaken for SaleNo] units to be delivered)
         """
         try:
             self.cursor.execute("""
-            SELECT COALESCE(p.ProductNo || ' - ' || p.ProductName || ' (' || (i.QuantitySold - IFNULL(SUM(b.QuantityTaken), 0)) || ' units to be delivered)', 'No Products Assigned')
-            FROM Sales_Inventory i RIGHT JOIN Sales s ON i.SaleID = s.SaleID
-            LEFT JOIN Products p ON i.ProductID = p.ProductID
-            LEFT JOIN Sales_Inventory_Batch b ON i.SalesInventoryID = b.SalesInventoryID
-            WHERE s.SaleNo = ?
-            GROUP BY p.ProductID
-            ORDER BY p.ProductID ASC
+                SELECT COALESCE(p.ProductNo || ' - ' || p.ProductName || ' (' || (i.QuantitySold - IFNULL(SUM(b.QuantityTaken), 0)) || ' units to be delivered)', 'No Products Assigned')
+                FROM Sales_Inventory i RIGHT JOIN Sales s ON i.SaleID = s.SaleID
+                LEFT JOIN Products p ON i.ProductID = p.ProductID
+                LEFT JOIN Sales_Inventory_Batch b ON i.SalesInventoryID = b.SalesInventoryID
+                WHERE s.SaleNo = ?
+                GROUP BY p.ProductID
+                ORDER BY p.ProductID ASC
             """, (saleNo,))
             return [value[0] for value in self.cursor.fetchall()]
 
@@ -1204,17 +1243,17 @@ class DatabaseConnection:
         """Returns [Product Batch No.] ([Units Left]) that has not been assigned in the warehouse."""
         try:
             self.cursor.execute("""SELECT pb.PBatchNumber, SUM(i.StockQuantity)
-            FROM Inventory i INNER JOIN Products p ON i.ProductID = p.ProductID
-            INNER JOIN Product_Batch pb ON i.PBatchID = pb.PBatchID
-            WHERE p.ProductNo = ? AND i.LocationID != 5
-            GROUP BY pb.PBatchNumber
+                FROM Inventory i INNER JOIN Products p ON i.ProductID = p.ProductID
+                INNER JOIN Product_Batch pb ON i.PBatchID = pb.PBatchID
+                WHERE p.ProductNo = ? AND i.LocationID != 5
+                GROUP BY pb.PBatchNumber
             """, (productNo,))
             results = [list(value) for value in self.cursor.fetchall()]
             for value in results:
                 self.cursor.execute("""SELECT SUM(i.QuantityTaken) 
-                FROM Sales_Inventory_Batch i INNER JOIN Sales_Inventory s ON i.SalesInventoryID = s.SalesInventoryID
-                LEFT JOIN Product_Batch b ON i.PBatchID = b.PBatchID
-                WHERE PBatchNumber = ? GROUP BY s.ProductID""", (value[0],))
+                    FROM Sales_Inventory_Batch i INNER JOIN Sales_Inventory s ON i.SalesInventoryID = s.SalesInventoryID
+                    LEFT JOIN Product_Batch b ON i.PBatchID = b.PBatchID
+                    WHERE PBatchNumber = ? GROUP BY s.ProductID""", (value[0],))
                 try:
                     qty = self.cursor.fetchone()[0]
                     value[1] = int(value[1]) - int(qty)
@@ -1230,17 +1269,10 @@ class DatabaseConnection:
     def query_salesOrder_quantity(self, productID: int) -> int:
         """Returns products available to be sold in the warehouse, and products at output."""
         try:
-            products = []
             self.cursor.execute(
                 """SELECT SUM(StockQuantity) FROM Inventory WHERE ProductID = ? AND LocationID != 5 GROUP BY ProductID """,
                 (productID,))
-            #products += [self.cursor.fetchone()[0]]
             return self.cursor.fetchone()[0]
-            #self.cursor.execute("""SELECT COALESCE(StockQuantity, 0) FROM Inventory WHERE ProductID = ? AND LocationID = 4""", (productID,))
-            #try: products += [self.cursor.fetchone()[0]]
-            #except TypeError: products += [0]
-            #return products
-
         except sqlite3.Error as err:
             print(f"Error: {err}")
             return 0
@@ -1263,11 +1295,11 @@ class DatabaseConnection:
             return False
 
     def add_salesOrder(self, saleNo: str, productID: str, quantity: int) -> bool:
-        '''
-            1. Check if there's a salesInventory
-            2a. If no, create a new row for it
-            2b. If yes, update it to the new quantity
-        '''
+        """
+        1. Check if there's a salesInventory
+        2a. If no, create a new row for it
+        2b. If yes, update it to the new quantity
+        """
         try:
             self.cursor.execute("SELECT SaleID FROM Sales WHERE SaleNO = ?", (saleNo,))
             saleID = self.cursor.fetchone()[0]
@@ -1295,9 +1327,9 @@ class DatabaseConnection:
     def update_salesOrder(self, saleNo: str, productNo: str, batchNo: str, quantity: int) -> bool:
         try:
             self.cursor.execute("""SELECT i.SalesInventoryID 
-            FROM Sales_Inventory i INNER JOIN Products p ON i.ProductID = p.ProductID
-            INNER JOIN Sales s ON i.SaleID = s.SaleID
-            WHERE s.SaleNo = ? AND p.ProductNo = ?
+                FROM Sales_Inventory i INNER JOIN Products p ON i.ProductID = p.ProductID
+                INNER JOIN Sales s ON i.SaleID = s.SaleID
+                WHERE s.SaleNo = ? AND p.ProductNo = ?
             """, (saleNo, productNo))
             salesInventoryID = self.cursor.fetchone()[0]
 
@@ -1308,14 +1340,14 @@ class DatabaseConnection:
             name = self.cursor.fetchone()[0]
 
             self.cursor.execute("""SELECT SalesInventoryBatchID FROM Sales_Inventory_Batch
-            WHERE SalesInventoryID = ? AND PBatchID = ?""", (salesInventoryID, batchID))
+                WHERE SalesInventoryID = ? AND PBatchID = ?""", (salesInventoryID, batchID))
             try:
-                salesInventoryBatchID = self.cursor.fetchone()[0]
+                _ = self.cursor.fetchone()[0]
                 self.cursor.execute("""UPDATE Sales_Inventory_Batch SET QuantityTaken = (QuantityTaken+?)""",
-                                    (quantity))
+                                    (quantity,))
             except:
                 self.cursor.execute("""INSERT INTO Sales_Inventory_Batch (SalesInventoryID, PBatchID, QuantityTaken)
-                VALUES (?, ?, ?)""", (salesInventoryID, batchID, quantity,))
+                    VALUES (?, ?, ?)""", (salesInventoryID, batchID, quantity,))
             self.connection.commit()
             self.logger.info(f"Update Sales Order | Assigned {quantity} {name} from {batchNo} to {saleNo}",
                              type="report", key="User Activities")
@@ -1327,7 +1359,6 @@ class DatabaseConnection:
 
     def validate_salesOrder(self, saleDetails: str) -> bool:
         try:
-            #print(saleDetails)
             if saleDetails.split('(')[1] == "Not Paid)":
                 newStatus = "Not Delivered"
             else:
@@ -1340,7 +1371,6 @@ class DatabaseConnection:
                         return False
             self.cursor.execute("UPDATE Sales SET STATUS = ? WHERE SaleNo = ?",
                                 (newStatus, saleDetails.split(' (')[0],))
-            #print(f"{newStatus = }\n{saleDetails.split('(')[0] = }")
             self.connection.commit()
             self.logger.info(f"Validate Sales Order | Validated Payment for {saleDetails.split(' (')[0]}",
                              type="report", key="User Activities")
@@ -1355,59 +1385,55 @@ class DatabaseConnection:
             return False
         try:
             self.cursor.execute("""SELECT i.ProductID, b.QuantityTaken, b.PBatchID
-            FROM Sales_Inventory_Batch b INNER JOIN Sales_Inventory i ON b.SalesInventoryID = i.SalesInventoryID
-            INNER JOIN Sales s ON i.SaleID = s.SaleID
-            WHERE SaleNo = ?
+                FROM Sales_Inventory_Batch b INNER JOIN Sales_Inventory i ON b.SalesInventoryID = i.SalesInventoryID
+                INNER JOIN Sales s ON i.SaleID = s.SaleID
+                WHERE SaleNo = ?
             """, (saleNo,))
             results = self.cursor.fetchall()
-            #print(f"{results = }")
+
             for result in results:
                 self.cursor.execute("""SELECT StockQuantity FROM Inventory
-                WHERE ProductID = ? AND LocationID = 4 AND PBatchID = ? """, (result[0], result[2],))
+                    WHERE ProductID = ? AND LocationID = 4 AND PBatchID = ? """, (result[0], result[2],))
                 qty = self.cursor.fetchone()[0] - result[1]
-                #print(f"Parameters\nQuantity: {qty}\nProduct ID: {result[0]}\nBatch ID: {result[2]}\n")
                 self.cursor.execute("""UPDATE Inventory SET StockQuantity = ?
-                WHERE ProductID = ? AND LocationID = 4 AND PBatchID = ?
+                    WHERE ProductID = ? AND LocationID = 4 AND PBatchID = ?
                 """, (qty, result[0], result[2],))
-                #print("1")
+
                 self.cursor.execute(
                     """SELECT InventoryID FROM Inventory WHERE ProductID = ? AND LocationID = 5 AND PBatchID = ?""",
                     (result[0], result[2]))
-                #print("2")
                 if self.cursor.fetchone() is None:
                     self.cursor.execute("""INSERT INTO Inventory (ProductID, StockQuantity, LocationID, PBatchID)
-                    VALUES (?, ?, 5, ?) """, (result[0], result[1], result[2]))
+                        VALUES (?, ?, 5, ?) """, (result[0], result[1], result[2]))
                 else:
                     self.cursor.execute("""UPDATE Inventory SET StockQuantity = StockQuantity + ?
-                    WHERE ProductID = ? AND LocationID = 5 AND PBatchID = ?
+                        WHERE ProductID = ? AND LocationID = 5 AND PBatchID = ?
                     """, (result[1], result[0], result[2],))
-                #print("3")
+
             self.cursor.execute("""UPDATE Sales SET Status = 'Delivered' WHERE SaleNo = ?""", (saleNo,))
             self.connection.commit()
 
             for result in results:
                 self.cursor.execute("""SELECT COALESCE(SUM(i.StockQuantity), 0), p.ProductName
-                FROM Inventory i INNER JOIN Products p ON i.ProductID = p.ProductID
-                WHERE i.LocationID!=5 AND i.ProductID = ?""", (result[0],))
+                    FROM Inventory i INNER JOIN Products p ON i.ProductID = p.ProductID
+                    WHERE i.LocationID!=5 AND i.ProductID = ?""", (result[0],))
                 product = self.cursor.fetchone()
-                if product[0] == '0':
-                    self.logger.success("", event="Out of Stock Alert", placeholder=product[1], type="notification")
-                elif product[0] <= 20:
-                    self.logger.success("", event="Stock at Critical Level", placeholder=product[1],
-                                        type="notification")
-                elif product[0] <= 40:
-                    self.logger.success("", event="Low Stock Alert", placeholder=product[1], type="notification")
+                qty_left, prod_name = int(product[0]), product[1]
+                if qty_left == 0:
+                    self.logger.success("", event="Out of Stock Alert", placeholder=prod_name, type="notification")
+                elif qty_left <= 20:
+                    self.logger.success("", event="Stock at Critical Level", placeholder=prod_name, type="notification")
+                elif qty_left <= 40:
+                    self.logger.success("", event="Low Stock Alert", placeholder=prod_name, type="notification")
 
                 self.cursor.execute("SELECT PBatchNumber FROM Product_Batch WHERE PBatchID = ?", (result[2],))
                 batchNumber = self.cursor.fetchone()[0]
                 self.logger.info(f"{product[1]} | {batchNumber} | Output | Customer | {result[1]}",
-                                 type="report", key="Product Movement")
+                                 type="report", key="Product Movement Report")
 
             self.logger.info(f"Validate Sales Order | Validated Delivery for {saleNo}",
                              type="report", key="User Activities")
             return True
-
-
 
         except sqlite3.Error as err:
             print(f"Delivery Update Error: {err}")
@@ -1415,14 +1441,12 @@ class DatabaseConnection:
 
     def validate_salesOrder_delivery(self, saleNo: str) -> bool:
         try:
-            #print(saleNo)
             self.cursor.execute("""SELECT i.ProductID, b.PBatchID, COALESCE(b.QuantityTaken, 0)
-            FROM Sales_Inventory i INNER JOIN Sales s ON i.SaleID = s.SaleID
-            LEFT JOIN Sales_Inventory_Batch b ON i.SalesInventoryID = b.SalesInventoryID
-            WHERE s.SaleNo = ?
+                FROM Sales_Inventory i INNER JOIN Sales s ON i.SaleID = s.SaleID
+                LEFT JOIN Sales_Inventory_Batch b ON i.SalesInventoryID = b.SalesInventoryID
+                WHERE s.SaleNo = ?
             """, (saleNo,))
             results = [list(value) for value in self.cursor.fetchall()]
-            #print(results)
             for result in results:
                 self.cursor.execute(
                     """SELECT StockQuantity FROM Inventory WHERE ProductID = ? AND LocationID = 4 AND PBatchID = ?""",
@@ -1431,16 +1455,14 @@ class DatabaseConnection:
                     result += [self.cursor.fetchone()[0]]
                 except TypeError:
                     result += [0]
-            #print(results)
             for result in results:
                 if result[2] > result[3]:
                     return False
             self.cursor.execute("""SELECT i.QuantitySold, COALESCE(SUM(b.QuantityTaken), 0)
-            FROM Sales_Inventory i INNER JOIN Sales s ON i.SaleID = s.SaleID
-            INNER JOIN Sales_Inventory_Batch b ON i.SalesInventoryID = b.SalesInventoryID
-            WHERE s.SaleNo = ? GROUP BY i.SalesInventoryID""", (saleNo,))
+                FROM Sales_Inventory i INNER JOIN Sales s ON i.SaleID = s.SaleID
+                INNER JOIN Sales_Inventory_Batch b ON i.SalesInventoryID = b.SalesInventoryID
+                WHERE s.SaleNo = ? GROUP BY i.SalesInventoryID""", (saleNo,))
             for value in self.cursor.fetchall():
-                #print(value)
                 if value[0] > value[1]:
                     return False
             self.connection.commit()
@@ -1453,8 +1475,12 @@ class DatabaseConnection:
         try:
             self.cursor.execute(
                 "DELETE FROM Sales_Inventory WHERE SaleID IN (SELECT SaleID FROM Sales WHERE SaleNo = ?)", (saleNo,))
-            self.cursor.execute("DELETE FROM Sales WHERE SaleID = ?", (saleNo,))
+            self.cursor.execute("DELETE FROM Sales WHERE SaleNo = ?", (saleNo,))
             self.connection.commit()
+            try:
+                self._log_user_activity(getattr(self, 'employeeID', None), f"Delete Sales Order | {saleNo}")
+            except Exception:
+                pass
             return True
 
         except sqlite3.Error as err:
@@ -1462,7 +1488,6 @@ class DatabaseConnection:
             return False
 
     def deleteAccount(self, employeeID: int) -> bool:
-
         try:
             self.cursor.execute("DELETE FROM Accounts WHERE WorkerID = ?", (employeeID,))
             self.cursor.execute("UPDATE Tasks SET WorkerID = NULL WHERE WorkerID = ?", (employeeID,))
@@ -1497,14 +1522,13 @@ class DatabaseConnection:
         return newString[::-1]
 
     def _create_tables(self):
-
         self.cursor.execute("PRAGMA foreign_keys = ON;")
 
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS Roles (
             RoleID INTEGER PRIMARY KEY AUTOINCREMENT,
             RoleName TEXT(64) NOT NULL);
-            ''')
+        ''')
 
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS Workers (
@@ -1513,7 +1537,7 @@ class DatabaseConnection:
             Name TEXT NOT NULL,
             ContactNumber TEXT(12),
             FOREIGN KEY (RoleID) REFERENCES Roles(RoleID));
-            ''')
+        ''')
 
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS Accounts (
@@ -1521,14 +1545,14 @@ class DatabaseConnection:
             Email TEXT UNIQUE NOT NULL,
             HashedPW TEXT(72) NOT NULL,
             FOREIGN KEY (WorkerID) REFERENCES Workers(WorkerID));
-            ''')
+        ''')
 
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS Task_Batch (
             TBatchID INTEGER PRIMARY KEY AUTOINCREMENT,
             TBatchNo TEXT UNIQUE,
             TBatchDesc TEXT);
-            ''')
+        ''')
 
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS Tasks (
@@ -1540,7 +1564,7 @@ class DatabaseConnection:
             TBatchID INTEGER,
             FOREIGN KEY (TBatchID) REFERENCES Task_Batch(TBatchID),
             FOREIGN KEY (WorkerID) REFERENCES Workers(WorkerID));
-            ''')
+        ''')
 
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS Notification (
@@ -1549,13 +1573,13 @@ class DatabaseConnection:
             TimeStamp TEXT,
             NotificationDesc TEXT,
             FOREIGN KEY (RoleID) REFERENCES Roles(RoleID));
-            ''')
+        ''')
 
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS Product_Batch (
             PBatchID INTEGER PRIMARY KEY AUTOINCREMENT,
             PBatchNumber TEXT);
-            ''')
+        ''')
 
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS Suppliers (
@@ -1563,13 +1587,13 @@ class DatabaseConnection:
             Name TEXT NOT NULL,
             Email TEXT,
             ContactNumber INTEGER(12));
-            ''')
+        ''')
 
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS Locations (
             LocationID INTEGER PRIMARY KEY AUTOINCREMENT,
             LocationName TEXT(64) NOT NULL);
-            ''')
+        ''')
 
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS Products (
@@ -1580,7 +1604,7 @@ class DatabaseConnection:
             Price REAL,
             PreferredSupplierID INTEGER NOT NULL,
             FOREIGN KEY (PreferredSupplierID) REFERENCES Suppliers(SupplierID));
-            ''')
+        ''')
 
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS Inventory (
@@ -1592,7 +1616,7 @@ class DatabaseConnection:
             FOREIGN KEY (PBatchID) REFERENCES Product_Batch(PBatchID),
             FOREIGN KEY (ProductID) REFERENCES Products(ProductID),
             FOREIGN KEY (LocationID) REFERENCES Locations(LocationID));
-            ''')
+        ''')
 
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS Shipments (
@@ -1607,7 +1631,7 @@ class DatabaseConnection:
             FOREIGN KEY (ProductID) REFERENCES Products(ProductID),
             FOREIGN KEY (PBatchID) REFERENCES Product_Batch(PBatchID),
             FOREIGN KEY (SupplierID) REFERENCES Suppliers(SupplierID));
-            ''')
+        ''')
 
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS Sales (
@@ -1615,7 +1639,7 @@ class DatabaseConnection:
             SaleNo TEXT UNIQUE NOT NULL,
             Date TEXT,
             Status TEXT NOT NULL DEFAULT 'Not Paid');
-            ''')
+        ''')
 
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS Sales_Inventory (
@@ -1625,7 +1649,7 @@ class DatabaseConnection:
             QuantitySold INTEGER,
             FOREIGN KEY (SaleID) REFERENCES Sales(SaleID),
             FOREIGN KEY (ProductID) REFERENCES Products(ProductID));
-            ''')
+        ''')
 
         self.cursor.execute("""
             CREATE TABLE IF NOT EXISTS Sales_Inventory_Batch (
@@ -1650,47 +1674,3 @@ class DatabaseConnection:
         self.cursor.execute("INSERT INTO Workers (RoleID, Name, ContactNumber) VALUES (1, 'Ahmad', '0161123344');")
         self.cursor.execute("INSERT INTO Accounts (WorkerID, Email, HashedPW) VALUES (1, 'ahmad@gmail.com', ?)",
                             (b'$2b$14$OQM2OwY9kdaOeA/IE0hhPeXwrQhbZwVxxJvlynbkRDfXB1dm6XSOy',))
-
-
-# Test Case
-if __name__ == "__main__":
-    #print(datetime.now())
-    #auth = authentication()
-    #if auth.authenticate("ahmad@gmail.com", "admin1234"):
-    #    print("true")
-
-    #if auth.authenticate("john@example.com", "JohnIsDumb"):
-    #    print ("true")
-
-    """
-    auth.createAccount(
-        adminID=1,
-        adminPassword="admin1234",
-        employeeEmail="john@example.com",
-        employeeName="John Doe",
-        employeeRoleID=2,
-        employeeContactNumber="123-456-7890",
-        employeePassword="JohnIsDumb"
-    )
-    """
-    #auth.createAccount(
-
-    #)
-
-    con = DatabaseConnection()
-    #con.add_productBatch("BATCH-240602-ABZ")
-    #print(con.query_productBatchNo())
-    #con.update_product('FUR-TBL-M-BR-001', 'Wooden Dining Table', 'Sturdy table for 6 people', 289.99, 1)
-    #print(con.update_salesOrder('SALE-240610-A', 'FUR-CHR-M-BR-001', 'BATCH-240526-A', 7))
-    #print(con.query_salesOrder_productBatch('FUR-CHR-M-BR-001'))
-    #con.validate_salesOrder_delivery('SALE-240612-A')
-    #con.update_salesOrder_delivery('SALE-240612-A')
-    #print(con.query_taskBatch())
-    #con.update_task(3, 'Review code for pull request', 2, 'In Progress', '2024-05-27', 'TASK-240611-A')
-    #print(con.query_accounts_table())
-    #print(con.query_SalesOrder())
-    #print(con.query_product_dashboard())
-    #con.logger.info("Test Report Message 2", type="report", key="Traceability")
-    #print(con.query_product_movement_report())
-    # print(con.query_traceability_report("BATCH-240526-A", "Executive Office Chair"))
-    print(con.query_product_meter())

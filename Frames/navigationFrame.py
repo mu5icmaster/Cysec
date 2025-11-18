@@ -42,8 +42,14 @@ class navigationFrame(ttk.Frame):
         # Menu by role name from Roles table
         buttonConfig = {
             "Worker": ["Dashboard", "Inventory", "Report", "Tasks"],
-            "Supervisor": ["Dashboard", "Product", "Inventory", "Purchase Order", "Sales Order", "Tasks", "Vendor", "Report"],
-            "Administrator": ["Dashboard", "Product", "Inventory", "Purchase Order", "Sales Order", "Vendor", "Report", "Add Worker"]
+            "Supervisor": [
+                "Dashboard", "Product", "Inventory", "Purchase Order",
+                "Sales Order", "Tasks", "Vendor", "Report", "Logging & Analytics"
+            ],
+            "Administrator": [
+                "Dashboard", "Product", "Inventory", "Purchase Order",
+                "Sales Order", "Vendor", "Report", "Logging & Analytics", "Add Worker"
+            ]
         }
         if self.role not in buttonConfig:
             self.role = "Worker"
@@ -130,8 +136,6 @@ class navigationFrame(ttk.Frame):
             cur.execute("SELECT Name FROM Workers WHERE WorkerID = ?", (worker_id,))
             row = cur.fetchone()
             return str(row[0]) if row and row[0] is not None else None
-        except Exception:
-            return None
         finally:
             cur.close()
 
@@ -152,8 +156,6 @@ class navigationFrame(ttk.Frame):
             """, (worker_id,))
             row = cur.fetchone()
             return str(row[0]) if row and row[0] is not None else None
-        except Exception:
-            return None
         finally:
             cur.close()
 
@@ -187,6 +189,17 @@ class navigationFrame(ttk.Frame):
         }
         if text in mapping:
             self._show_page(mapping[text])
+
+        elif text == "Logging & Analytics":
+            # Open Reports and immediately show User Activities
+            self._clear_content()
+            page = ReportFrame(self.content_container, self.role, self.employeeID)
+            try:
+                page.grid(row=0, column=0, sticky="nsew")
+                page.user_activities_report()
+            except Exception:
+                pass
+
         elif text == "Add Worker":
             AccountSetupDialog(
                 self.master,
