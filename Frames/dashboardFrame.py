@@ -1,6 +1,7 @@
 from PIL import Image
 import ttkbootstrap as ttk
 from PIL import Image, ImageTk
+from ttkbootstrap.tableview import Tableview
 
 from utils import fonts
 from configuration import Configuration
@@ -65,6 +66,13 @@ class DashboardFrame(ttk.Frame):
         # Configure Middle Frame and Bottom Frame
         self.configure_middle_frame(middle_frame)
         self.configure_bottom_frame(bottom_frame)
+
+        # === Admin only: show Logging & Analytics table at the bottom ===
+       # if isinstance(self.role, str) and self.role.lower() == "administrator":
+          #  self._render_admin_logs()
+
+        # 让第 4 行可以伸展（日志区）
+        self.rowconfigure(4, weight=1)
 
     def configure_middle_frame(self, middle_frame: ttk.Frame):
         # Create Frames
@@ -292,6 +300,25 @@ class DashboardFrame(ttk.Frame):
         ttk.Frame(frame, height=10).grid(row=2, column=0, sticky="nwes")
         ttk.Label(frame, text=info, font=self.font.get_font("thin3"), foreground=self.styleObj.colors.get(
             "dark"), anchor=ttk.CENTER).grid(row=3, column=0, sticky="nwe")
+        
+   # def _render_admin_logs(self):
+    #    box = ttk.Labelframe(self, text="Logging and Analytics", padding=8)
+     #   box.grid(row=99, column=0, columnspan=2, sticky="nsew", padx=10, pady=8)
+#
+ #       cols = ("Admin Name", "Action", "Target", "Target ID", "Time")
+  #      tv = ttk.Treeview(box, columns=cols, show="headings", height=8)
+   #     for c in cols:
+    #        tv.heading(c, text=c)
+     #       tv.column(c, width=150, anchor="w")
+      #  tv.grid(row=0, column=0, sticky="nsew")
+#
+        # 拉最新 50 条
+    #    rows = self.db.logs_latest(50)
+     #   for _id, actor_name, action, target_type, target_id, ts in rows:
+      #      tv.insert("", "end", values=(actor_name, action, target_type, target_id, ts))
+
+       # box.rowconfigure(0, weight=1)
+        #box.columnconfigure(0, weight=1)
 
 
 

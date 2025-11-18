@@ -16,6 +16,8 @@ from Frames.settingsPopup import SettingsPopup
 from Frames.dashboardFrame import DashboardFrame
 from Frames.reportsFrame import ReportFrame
 from Frames.accountSetupDialog import AccountSetupDialog
+from Frames.loggingFrame import LoggingFrame 
+
 
 
 class navigationFrame(ttk.Frame):
@@ -42,6 +44,7 @@ class navigationFrame(ttk.Frame):
         # Menu by role name from Roles table
         buttonConfig = {
             "Worker": ["Dashboard", "Inventory", "Report", "Tasks"],
+<<<<<<< HEAD
             "Supervisor": [
                 "Dashboard", "Product", "Inventory", "Purchase Order",
                 "Sales Order", "Tasks", "Vendor", "Report", "Logging & Analytics"
@@ -50,6 +53,10 @@ class navigationFrame(ttk.Frame):
                 "Dashboard", "Product", "Inventory", "Purchase Order",
                 "Sales Order", "Vendor", "Report", "Logging & Analytics", "Add Worker"
             ]
+=======
+            "Supervisor": ["Dashboard", "Product", "Inventory", "Purchase Order", "Sales Order", "Tasks", "Vendor", "Report"],
+            "Administrator": ["Dashboard", "Product", "Inventory", "Purchase Order", "Sales Order", "Vendor", "Report", "Add Worker", "Logging"]
+>>>>>>> dfcd0630c26e219a7187e71cd49a3531ad29663d
         }
         if self.role not in buttonConfig:
             self.role = "Worker"
@@ -185,7 +192,8 @@ class navigationFrame(ttk.Frame):
             "Sales Order": salesOrderFrame,
             "Tasks": taskFrame,
             "Vendor": vendorFrame,
-            "Report": ReportFrame
+            "Report": ReportFrame,
+            "Logging": LoggingFrame
         }
         if text in mapping:
             self._show_page(mapping[text])

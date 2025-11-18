@@ -1,7 +1,8 @@
 from Frames.pageFrame import *
 from Database.Database import DatabaseConnection
-
+import re
 from Frames.popup import popup
+from ttkbootstrap.dialogs import Messagebox
 
 
 class vendorFrame(pageFrame):
@@ -38,17 +39,88 @@ class vendorFrame(pageFrame):
         elif button_text == "Delete":
             self.deletePopup()
 
+    def _validate_vendor_form(self, tl) -> bool:
+        """
+        tl: add/update Pop-up object popup(...)
+        Sequence：
+          0: Vendor ID (Read)
+          1: Vendor Name
+          2: Email
+          3: Contact Number
+        """
+        name    = tl.stringVar[1].get().strip()
+        email   = tl.stringVar[2].get().strip()
+        contact = tl.stringVar[3].get().strip()
+
+        errors = []
+
+    # Align with your utils.validation rules 
+        if not name or re.search(r"[^a-zA-Z0-9_\s\-,.']", name):
+            errors.append("Invalid Vendor Name.")
+
+        if not re.match(r"^[\w\-.]+@([\w-]+\.)+[\w-]{2,}$", email):
+            errors.append("Invalid Email Format.")
+
+    # `contactNumber` validation is a 10-digit number.
+        if not re.match(r"^[\d]{10}$", contact):
+            errors.append("Invalid Contact Number (must be 10 digits).")
+
+        if errors:
+        # Sync to red text prompt
+            if "Invalid Vendor Name." in errors:
+                tl.errVar[1].set("Only alphanumeric characters allowed.")
+            if "Invalid Email Format." in errors:
+                tl.errVar[2].set("Invalid Email Format")
+            if any("Contact Number" in e for e in errors):
+                tl.errVar[3].set("Invalid Contact Number")
+
+        # Pop-up window prevents submission
+            Messagebox.show_error("\n".join(errors), "Validation Error", parent=tl)
+            return False
+
+    # 全部通过，清掉红字
+        tl.errVar[1].set("")
+        tl.errVar[2].set("")
+        tl.errVar[3].set("")
+        return True
+
     def addPopup(self):
 
         # Creates Popup
         toplevel = popup(master=self.masterWindow, title="Add Vendor", entryFieldQty=4)
 
         def onButtonPress():
-            if not self.db_connection.add_vendor(toplevel.stringVar[1].get(), toplevel.stringVar[2].get(), toplevel.stringVar[3].get()):
-                toplevel.errVar[3].set("Submission failed to process")
-            else:
+    # 后端强制校验（最后一道闸）
+            if not self._validate_vendor_form(toplevel):
+                return
+
+            try:
+                ok = self.db_connection.add_vendor(
+                    toplevel.stringVar[1].get().strip(),
+                    toplevel.stringVar[2].get().strip(),
+                    toplevel.stringVar[3].get().strip()
+                )
+                if not ok:
+                    toplevel.errVar[3].set("Submission failed to process")
+                    Messagebox.show_error("Create vendor failed.", "Database", parent=toplevel)
+                    return
+                
+                self.db_connection.log_event(
+                    actor_id=self.employeeID,
+                    actor_name=self.name if hasattr(self, "name") else str(self.employeeID),
+                    action="CREATE_VENDOR",
+                    target_type="Vendor",
+                    target_id=toplevel.stringVar[0].get(),  # Vendor ID
+                    detail=f"name={toplevel.stringVar[1].get()}, email={toplevel.stringVar[2].get()}"
+                )    
+
                 self._load_table_rows(self.db_connection.query_vendor_all())
                 toplevel.destroy()
+            except Exception as e:
+                toplevel.errVar[3].set("Submission failed to process")
+                Messagebox.show_error(f"Database error:\n{e}", "Database", parent=toplevel)
+
+
 
         # Creates Widgets
         toplevel.create_title_frame(frame=toplevel.frameList[0], title="Add Vendor")
@@ -95,14 +167,37 @@ class vendorFrame(pageFrame):
         if rowDetails == []:
             return
         def onButtonPress():
-            parameters = []
-            for i in [0,1,3,2]:
-                parameters+= [toplevel.stringVar[i].get()]
-            if not self.db_connection.update_vendor(*parameters):
-                toplevel.errVar[4].set("Submission failed to process")
-            else:
+    # 提交前强制校验
+            if not self._validate_vendor_form(toplevel):
+                return
+
+            try:
+        # 你原本参数顺序是 (VendorID, VendorName, Contact, Email)
+                params = []
+                for i in [0, 1, 3, 2]:
+                    params.append(toplevel.stringVar[i].get().strip())
+
+                ok = self.db_connection.update_vendor(*params)
+                if not ok:
+                    toplevel.errVar[4].set("Submission failed to process")
+                    Messagebox.show_error("Update vendor failed.", "Database", parent=toplevel)
+                    return
+                
+                self.db_connection.log_event(
+                    actor_id=self.employeeID,
+                    actor_name=self.name if hasattr(self, "name") else str(self.employeeID),
+                    action="UPDATE_VENDOR",
+                    target_type="Vendor",
+                    target_id=toplevel.stringVar[0].get(),
+                    detail=f"name={toplevel.stringVar[1].get()}, email={toplevel.stringVar[2].get()}"
+                )
+
                 self._load_table_rows(self.db_connection.query_vendor_all())
                 toplevel.destroy()
+            except Exception as e:
+                toplevel.errVar[3].set("Submission failed to process")
+                Messagebox.show_error(f"Database error:\n{e}", "Database", parent=toplevel)
+
 
         # Creates Popup
         toplevel = popup(master=self.masterWindow, title="Update Vendor", entryFieldQty=4)
@@ -151,6 +246,15 @@ class vendorFrame(pageFrame):
         if popup.deleteDialog(self) == "OK":
             if self.db_connection.delete_vendor(rowDetails[0]):
                 self._load_table_rows(self.db_connection.query_vendor_all())
+
+                self.db_connection.log_event(
+                    actor_id=self.employeeID,
+                    actor_name=self.name if hasattr(self, "name") else str(self.employeeID),
+                    action="DELETE_VENDOR",
+                    target_type="Vendor",
+                    target_id=rowDetails[0],  # 被删除的 Vendor ID
+                    detail=""
+                )
             else:
                 popup.deleteFail(self)
 

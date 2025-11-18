@@ -107,6 +107,10 @@ class AccountSetupDialog(ttk.Toplevel):
 
         if not re.match(r"^[0-9+\-\s]{6,20}$", contact):
             return False, "Please enter a valid contact number."
+        
+        # At least 8 characters
+        if len(pw1) < 8:
+            return False, "Password must be at least 8 characters long."
 
         if pw1 != pw2:
             return False, "Passwords do not match."
@@ -150,6 +154,19 @@ class AccountSetupDialog(ttk.Toplevel):
             return
 
         Messagebox.show_info(f"Account created for {email}.", "Create Account", parent=self)
+
+        try:
+            self.db.log_event(
+                actor_id=self.auth.employeeID if hasattr(self.auth, "employeeID") else 0,
+                actor_name="Admin",  # 如果能取得当前管理员名可换成 self.auth.name
+                action="CREATE_ACCOUNT",
+                target_type="Account",
+                target_id=email,
+                detail=f"role={role_name}"
+            )
+        except Exception:
+            pass
+        
         if callable(self.on_success):
             try:
                 self.on_success(email)

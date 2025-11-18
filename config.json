@@ -1,10 +1,10 @@
 {
     "program_files": {
-        "Graphics": "c:\\Users\\Jet\\Desktop\\Cysec/Graphics",
-        "Database": "c:\\Users\\Jet\\Desktop\\Cysec/Database/Database.db",
-        "Preview": "c:\\Users\\Jet\\Desktop\\Cysec/Frames/ui_preview_text.json",
-        "Log": "c:\\Users\\Jet\\Desktop\\Cysec/Database/Database.log",
-        "Reports": "c:\\Users\\Jet\\Desktop\\Cysec/Reports"
+        "Graphics": "c:\\Users\\yenya\\Downloads\\Cysec/Graphics",
+        "Database": "c:\\Users\\yenya\\Downloads\\Cysec/Database/Database.db",
+        "Preview": "c:\\Users\\yenya\\Downloads\\Cysec/Frames/ui_preview_text.json",
+        "Log": "c:\\Users\\yenya\\Downloads\\Cysec/Database/Database.log",
+        "Reports": "c:\\Users\\yenya\\Downloads\\Cysec/Reports"
     },
     "user_preferences": {
         "user_id": {
@@ -20,6 +20,13 @@
             "3": {
                 "profile_picture": "user_1a",
                 "theme_name": "litera"
+<<<<<<< HEAD
+=======
+            },
+            "4": {
+                "profile_picture": "user_1a",
+                "theme_name": "litera"
+>>>>>>> dfcd0630c26e219a7187e71cd49a3531ad29663d
             }
         }
     }

@@ -7,6 +7,8 @@ import json
 from ttkbootstrap.toast import ToastNotification
 
 from configuration import Configuration
+from utils_otp import now, MAX_ATTEMPTS
+
 
 
 def singleton(cls):
@@ -84,9 +86,16 @@ class DatabaseConnection:
         logger.add(f"{self.config.getLogFile()}", retention="3 months",
                    filter=self.log_report_filter,
                    format="""{time:YYYY-MM-DD HH:mm:ss} | {extra[key]} Report | Employee ID: {extra[id]} | {message} | {level}""")
-        self.logger: logger = logger.bind(id='1', placeholder="", type="notification")
+        self.logger = logger.bind(id='1', placeholder="", type="notification")
         self.employeeID = 1
 
+<<<<<<< HEAD
+=======
+        # === ensure OTP table exists ===
+        self._ensure_otp_table()
+
+
+>>>>>>> dfcd0630c26e219a7187e71cd49a3531ad29663d
     def __enter__(self):
         return self
 
@@ -1674,3 +1683,165 @@ class DatabaseConnection:
         self.cursor.execute("INSERT INTO Workers (RoleID, Name, ContactNumber) VALUES (1, 'Ahmad', '0161123344');")
         self.cursor.execute("INSERT INTO Accounts (WorkerID, Email, HashedPW) VALUES (1, 'ahmad@gmail.com', ?)",
                             (b'$2b$14$OQM2OwY9kdaOeA/IE0hhPeXwrQhbZwVxxJvlynbkRDfXB1dm6XSOy',))
+<<<<<<< HEAD
+=======
+        
+            # =======================
+    # ===== OTP support =====
+    # =======================
+
+    def _ensure_otp_table(self):
+        cur = self.connection.cursor()
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS OTP_Codes (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          WorkerID INTEGER NOT NULL,
+          CodeHash TEXT NOT NULL,
+          CreatedAt INTEGER NOT NULL,
+          ExpiresAt INTEGER NOT NULL,
+          ConsumedAt INTEGER,
+          Attempts INTEGER NOT NULL DEFAULT 0
+        );
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_otp_worker ON OTP_Codes(WorkerID);")
+        self.connection.commit()
+        cur.close()
+
+    def otp_insert(self, worker_id: int, code_hash: bytes, ttl_sec: int):
+        cur = self.connection.cursor()
+        cur.execute(
+            "INSERT INTO OTP_Codes(WorkerID, CodeHash, CreatedAt, ExpiresAt) VALUES (?, ?, ?, ?)",
+            (worker_id, code_hash.decode() if isinstance(code_hash, bytes) else code_hash, now(), now()+ttl_sec)
+        )
+        self.connection.commit()
+        cur.close()
+
+    def otp_get_latest_active(self, worker_id: int):
+        cur = self.connection.cursor()
+        cur.execute(
+            """SELECT id, CodeHash, ExpiresAt, Attempts
+               FROM OTP_Codes
+               WHERE WorkerID=? AND ConsumedAt IS NULL
+               ORDER BY id DESC LIMIT 1""",
+            (worker_id,)
+        )
+        row = cur.fetchone()
+        cur.close()
+        return row
+
+    def otp_consume(self, otp_id: int):
+        cur = self.connection.cursor()
+        cur.execute("UPDATE OTP_Codes SET ConsumedAt=? WHERE id=?", (now(), otp_id))
+        self.connection.commit()
+        cur.close()
+
+    def otp_inc_attempt(self, otp_id: int):
+        cur = self.connection.cursor()
+        cur.execute("UPDATE OTP_Codes SET Attempts=Attempts+1 WHERE id=?", (otp_id,))
+        self.connection.commit()
+        cur.close()
+
+    def otp_cleanup(self):
+        cur = self.connection.cursor()
+        cur.execute("DELETE FROM OTP_Codes WHERE (ConsumedAt IS NOT NULL) OR (ExpiresAt < ?)", (now(),))
+        self.connection.commit()
+        cur.close()
+
+    # --- Logs helpers ---
+    def log_event(self, actor_id: int, actor_name: str, action: str,
+                  target_type: str, target_id: str|int|None, detail: str=""):
+        cur = self.connection.cursor()
+        cur.execute(
+            "INSERT INTO Logs(actor_id, actor_name, action, target_type, target_id, detail) "
+            "VALUES(?, ?, ?, ?, ?, ?)",
+            (actor_id, actor_name, action, target_type, str(target_id) if target_id is not None else None, detail)
+        )
+        self.connection.commit()
+        cur.close()
+
+    def logs_latest(self, limit: int = 50):
+        cur = self.connection.cursor()
+        cur.execute("""
+            SELECT id, actor_name, action, target_type, target_id,
+                   datetime(created_at, 'unixepoch') as ts
+            FROM Logs
+            ORDER BY id DESC
+            LIMIT ?
+        """, (limit,))
+        rows = cur.fetchall()
+        cur.close()
+        return rows
+
+    def logs_by_actor(self, actor_id: int, limit: int = 50):
+        cur = self.connection.cursor()
+        cur.execute("""
+            SELECT id, actor_name, action, target_type, target_id,
+                   datetime(created_at, 'unixepoch') as ts
+            FROM Logs
+            WHERE actor_id = ?
+            ORDER BY id DESC
+            LIMIT ?
+        """, (actor_id, limit))
+        rows = cur.fetchall()
+        cur.close()
+        return rows
+    
+    def logs_latest(self, limit: int = 100):
+        cur = self.conn.cursor() if hasattr(self, "conn") else self.connection.cursor()
+        cur.execute("""
+            SELECT id, actor_name, action, target_type, target_id,
+                    datetime(created_at, 'unixepoch') as ts
+            FROM Logs
+            ORDER BY id DESC
+            LIMIT ?
+        """, (limit,))
+        rows = cur.fetchall()
+        cur.close()
+        return rows  # [(_id, actor_name, action, target_type, target_id, ts), ...]
+
+
+
+
+# Test Case
+if __name__ == "__main__":
+    #print(datetime.now())
+    #auth = authentication()
+    #if auth.authenticate("ahmad@gmail.com", "admin1234"):
+    #    print("true")
+
+    #if auth.authenticate("john@example.com", "JohnIsDumb"):
+    #    print ("true")
+
+    """
+    auth.createAccount(
+        adminID=1,
+        adminPassword="admin1234",
+        employeeEmail="john@example.com",
+        employeeName="John Doe",
+        employeeRoleID=2,
+        employeeContactNumber="123-456-7890",
+        employeePassword="JohnIsDumb"
+    )
+    """
+    #auth.createAccount(
+
+    #)
+
+    con = DatabaseConnection()
+    #con.add_productBatch("BATCH-240602-ABZ")
+    #print(con.query_productBatchNo())
+    #con.update_product('FUR-TBL-M-BR-001', 'Wooden Dining Table', 'Sturdy table for 6 people', 289.99, 1)
+    #print(con.update_salesOrder('SALE-240610-A', 'FUR-CHR-M-BR-001', 'BATCH-240526-A', 7))
+    #print(con.query_salesOrder_productBatch('FUR-CHR-M-BR-001'))
+    #con.validate_salesOrder_delivery('SALE-240612-A')
+    #con.update_salesOrder_delivery('SALE-240612-A')
+    #print(con.query_taskBatch())
+    #con.update_task(3, 'Review code for pull request', 2, 'In Progress', '2024-05-27', 'TASK-240611-A')
+    #print(con.query_accounts_table())
+    #print(con.query_SalesOrder())
+    #print(con.query_product_dashboard())
+    #con.logger.info("Test Report Message 2", type="report", key="Traceability")
+    #print(con.query_product_movement_report())
+    # print(con.query_traceability_report("BATCH-240526-A", "Executive Office Chair"))
+    print(con.query_product_meter())
+>>>>>>> dfcd0630c26e219a7187e71cd49a3531ad29663d
